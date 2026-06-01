@@ -52,10 +52,19 @@ Exact shape:
 {"overallScore":85,"hireChance":78,"breakdown":{"atsCompatibility":{"score":21,"max":25,"feedback":"..."},"keywordDensity":{"score":16,"max":20,"feedback":"..."},"impactMetrics":{"score":15,"max":20,"feedback":"..."},"formatStructure":{"score":13,"max":15,"feedback":"..."},"relevanceMatch":{"score":18,"max":20,"feedback":"..."}},"topStrengths":["...","...","..."],"criticalFixes":["...","...","..."],"missingKeywords":["...","...","..."],"salaryRange":{"min":75000,"max":95000,"currency":"AUD"},"competitorComparison":{"vsAvgCandidate":68,"vsTopCandidate":38},"interviewQuestions":["...","...","..."],"rewrittenSummary":"2-3 sentence summary.","verdict":"One sentence."}
 All scores plain integers. Be specific, honest, based on actual content.`;
 
-const OPTIMIZE_SYSTEM = `ATS resume optimizer. Reply ONLY with raw JSON, no markdown, no backticks.
-Exact shape:
-{"optimizedResume":"complete resume text with \\n linebreaks","newAtsScore":96,"keywordsAdded":["kw1","kw2"],"sectionsChanged":["section: change"],"improvements":[{"section":"Summary","before":"old","after":"new"}],"verdict":"one sentence."}
-Rules: newAtsScore integer 92-99. Preserve ALL real jobs/dates/companies. Add keywords naturally. Never fabricate. Return the full ready-to-submit resume text.`;
+const OPTIMIZE_SYSTEM = `You are an expert ATS resume optimizer. Reply ONLY with a single raw JSON object — no markdown, no backticks, no text before or after.
+
+Required JSON shape (all fields mandatory):
+{"optimizedResume":"FULL resume text — every section, every job, every bullet, every date — nothing omitted","newAtsScore":96,"keywordsAdded":["keyword1","keyword2","keyword3"],"sectionsChanged":["Section name: what changed"],"improvements":[{"section":"Section name","before":"original text","after":"improved text"}],"verdict":"One sentence summary of improvements made."}
+
+CRITICAL RULES:
+1. optimizedResume MUST contain 100% of content — ALL jobs, ALL bullets, ALL dates, ALL sections (Summary, Skills, ALL Experience entries, Education, Systems, Certifications, References)
+2. Never truncate or cut short — return the entire resume in optimizedResume
+3. newAtsScore must be an integer 88-98
+4. Add missing ATS keywords naturally — never fabricate experience
+5. Keep all real job titles, company names, dates exactly as given
+6. improvements: 3-6 specific before/after examples of real changes
+7. keywordsAdded: every new keyword added`;
 
 const BUILD_SYSTEM = `Expert resume writer. Reply ONLY with raw JSON, no markdown, no backticks.
 Shape: {"resume":"full resume text","atsScore":88,"keywordsIncluded":["kw1","kw2"]}
@@ -76,8 +85,14 @@ export function extractJSON(raw) {
   let s = raw.replace(/```[a-zA-Z]*\n?/gi, "").replace(/```/g, "").trim();
   try { return JSON.parse(s); } catch (_) {}
   const a = s.indexOf("{"), b = s.lastIndexOf("}");
-  if (a !== -1 && b > a) { try { return JSON.parse(s.slice(a, b + 1)); } catch (_) {} }
-  throw new Error("Could not parse JSON. Raw: " + raw.slice(0, 200));
+  if (a !== -1 && b > a) {
+    try { return JSON.parse(s.slice(a, b + 1)); } catch (_) {}
+  }
+  // Detect truncation — give a useful error
+  if (s.includes('"optimizedResume"') && !s.includes('"verdict"')) {
+    throw new Error("Response was cut off before completing. Please try again — your resume may be very long.");
+  }
+  throw new Error("Could not parse JSON response. Please try again.");
 }
 
 /** XML escape for DOCX generation */
@@ -98,9 +113,23 @@ export function fmtSalary(v) {
 }
 
 /** Parse resume text into structured sections */
+/** Strip markdown bold/italic — used both in parser and DOCX builder */
+export function stripMd(s) {
+  return String(s)
+    .replace(/\*\*([^*]*)\*\*/g, "$1")  // **text** → text  (greedy content)
+    .replace(/\*([^*]+)\*/g,    "$1")   // *text*   → text
+    .replace(/\*\*/g,           "")     // stray **  → nothing
+    .replace(/\*/g,             "")     // stray *   → nothing
+    .replace(/\t/g,            "  ")   // tabs → 2 spaces
+    .replace(/  +/g,            " ")    // collapse multiple spaces
+    .trim();
+}
+
 export function parseResumeText(text) {
   if (!text || typeof text !== "string") return { name:"", tagline:"", contactLines:[], sections:[] };
-  const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+  const lines = text.split("\n")
+    .map(l => stripMd(l))           // ← strip ALL markdown BEFORE any logic
+    .filter(l => l.length > 0);
   const isSection = l => SECTION_KW.some(k => l.toUpperCase().trim() === k);
   let headerLines = [], sections = [], curr = null;
   for (const line of lines) {
@@ -249,78 +278,62 @@ function _buildDocumentXml(resumeText) {
   const GR = "374151", MG = "6B7280", LG = "9CA3AF";
   const BL = "111827", AM = "854D0E";
 
-  // ── Font & fixed sizes ─────────────────────────────────────────────────────
+  // ── Typography ─────────────────────────────────────────────────────────────
   const F       = "Times New Roman";
-  const NAME_SZ = 40;   // 20pt — commanding name
-  const POS_SZ  = 26;   // 13pt — position below name
-  const H2      = 24;   // 12pt — section headings, job titles
-  const BODY    = 22;   // 11pt — body text
-  const SM      = 20;   // 10pt — contact, dates
+  const NAME_SZ = 40;  // 20pt — commanding name
+  const POS_SZ  = 26;  // 13pt — position title
+  const H2      = 24;  // 12pt — section headers & job titles
+  const BODY    = 22;  // 11pt — all body text
+  const SM      = 20;  // 10pt — contact, dates
 
-  // ── Auto-fit: estimate line count → choose spacing preset ─────────────────
-  //
-  //  A4 usable height at 0.75in margins ≈ 15278 twips
-  //  One body line at 11pt = ~275 twips (font height + minimal leading)
-  //  At 1.25 line spacing = 300 twips per line
-  //  2 pages = 30556 twips, 3 pages = 45834 twips
-  //
-  //  Count "logical lines":
-  //    header block      : fixed ~8 lines
-  //    each section hdr  : ~2 lines (gap + heading + rule)
-  //    each bullet/skill : 1 line  (may wrap for long lines)
-  //    each job/edu entry: 3 lines (title + company + date)
-  //
-  let lineCount = 8; // header block
+  // ── Auto-fit line spacing ──────────────────────────────────────────────────
+  let lineCount = 8;
   for (const sec of sections) {
-    lineCount += 3; // gap + section heading + rule
+    lineCount += 3;
     for (const item of sec.items) {
-      if (/^[▪•\-]\s/.test(item)) {
-        lineCount += Math.ceil(item.length / 90) || 1; // wrapping estimate
-      } else {
-        lineCount += 1;
-      }
+      lineCount += Math.ceil((item||"").replace(/\*\*/g,"").length / 90) || 1;
     }
   }
+  const LINE  = lineCount <= 95  ? 300 : lineCount <= 130 ? 276 : 259;
+  const BUL_S = lineCount <= 95  ? 20  : lineCount <= 130 ? 12  : 6;
+  const SKL_S = lineCount <= 95  ? 16  : lineCount <= 130 ? 10  : 6;
+  const BOD_S = lineCount <= 95  ? 20  : lineCount <= 130 ? 12  : 8;
+  const SGAP  = lineCount <= 95  ? 140 : lineCount <= 130 ? 100 : 70;
 
-  // Choose spacing preset based on line count
-  // Target: fit into 2 pages if ≤ 95 lines, 3 pages if ≤ 145 lines
-  let PRESET;
-  if (lineCount <= 95) {
-    // COMFORTABLE — 1.25 line spacing, generous gaps
-    PRESET = {
-      LINE: 300,        // 1.25×
-      BULLET_BA: 20,    // before/after each bullet
-      SKILL_BA:  16,
-      BODY_BA:   20,
-      SEC_GAP_B: 140,   // before section gap
-      DIVIDER_B: 60,
-      PARA_B: 60,       // section header before
-    };
-  } else if (lineCount <= 130) {
-    // COMPACT — 1.15 line spacing, tighter gaps (fits most 2-page CVs)
-    PRESET = {
-      LINE: 276,        // 1.15×
-      BULLET_BA: 12,
-      SKILL_BA:  10,
-      BODY_BA:   12,
-      SEC_GAP_B: 100,
-      DIVIDER_B: 40,
-      PARA_B: 40,
-    };
-  } else {
-    // TIGHT — 1.08 line spacing, minimal gaps (fits long CVs into 3 pages)
-    PRESET = {
-      LINE: 259,        // 1.08×
-      BULLET_BA: 6,
-      SKILL_BA:  6,
-      BODY_BA:   8,
-      SEC_GAP_B: 70,
-      DIVIDER_B: 30,
-      PARA_B: 30,
-    };
-  }
+  // ── Clean markdown artefacts ────────────────────────────────────────────────
+  const clean = s => String(s||"")
+    .replace(/\*\*([^*]*)\*\*/g, "$1")  // **bold** → plain
+    .replace(/\*([^*]*)\*/g,   "$1")    // *italic* → plain
+    .replace(/^#+\s*/,         "")      // # heading → plain
+    .trim();
+
+  // ── Bullet detection ────────────────────────────────────────────────────────
+  // Handles: ▪ text, • text, - text, and AI output like **▪  **text
+  const isBulletLine = raw => {
+    const c = clean(raw);
+    if (/^[▪•\-–—]\s/.test(c)) return true;
+    // AI sometimes outputs "**▪  **text" — after clean() becomes "▪  text"
+    if (/^▪\s/.test(c)) return true;
+    return false;
+  };
+
+  // Auto-bullet: experience lines that look like achievements, not titles/dates
+  const isAutoBullet = (raw, inExp) => {
+    if (!inExp) return false;
+    const c = clean(raw);
+    if (c.length < 20) return false;
+    if (/\d{4}/.test(c) && c.length < 110) return false;
+    if (c.includes("|")) return false;
+    if (/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s/.test(c)) return false;
+    const actionVerb = /^(Resolve|Resolv|Manage|Demonstrate|Collaborate|Work|Utilise|Utilize|Adapt|Support|Process|Handle|Deliver|Coordinate|Train|Supervise|Achieve|Maintain|Ensure|Provide|Build|Create|Lead|Drive|Develop|Implement|Monitor|Report|Assist|Complete|Oversee|Conduct|Prepare|Review|Analyse|Analyze|Execute|Establish)/i;
+    const titleWord  = /(Administrator|Supervisor|Officer|Manager|Coordinator|Operator|Assistant|Specialist|Analyst|Consultant|Director|Executive|Representative|Cashier|Clerk)/i;
+    if (titleWord.test(c) && c.length < 80) return false;
+    if (!actionVerb.test(c) && c.length < 80) return false;
+    return true;
+  };
 
   // ── XML primitives ─────────────────────────────────────────────────────────
+  // rPr — run properties
   const rp = o => {
     let x = "";
     if (o.font)   x += `<w:rFonts w:ascii="${o.font}" w:hAnsi="${o.font}" w:cs="${o.font}" w:eastAsia="${o.font}"/>`;
@@ -332,35 +345,51 @@ function _buildDocumentXml(resumeText) {
     return x ? `<w:rPr>${x}</w:rPr>` : "";
   };
 
+  // Text run — always applies Times New Roman
   const ru = (text, o = {}) => {
-    if (text === null || text === undefined || text === "") return "";
-    const opts = { font: F, ...o };
-    return `<w:r>${rp(opts)}<w:t xml:space="preserve">${xmlEsc(String(text))}</w:t></w:r>`;
+    const t = clean(text);
+    if (!t) return "";
+    return `<w:r>${rp({ font:F, ...o })}<w:t xml:space="preserve">${xmlEsc(t)}</w:t></w:r>`;
   };
 
+  // pPr — paragraph properties
+  // CRITICAL: bdrB and bdrL must be in ONE <w:pBdr> block — never two separate ones.
+  // We handle this with a single pBdr builder that takes both.
   const pp = o => {
     let x = "";
-    const lineVal = o.line !== undefined ? o.line : (o.noLine ? null : PRESET.LINE);
+    // Line spacing
+    const lineVal = o.noLine ? null : (o.line !== undefined ? o.line : LINE);
     if (o.spacing) {
       const ls = lineVal !== null ? ` w:line="${lineVal}" w:lineRule="auto"` : "";
       x += `<w:spacing w:before="${o.spacing.b||0}" w:after="${o.spacing.a||0}"${ls}/>`;
     } else if (lineVal !== null) {
       x += `<w:spacing w:before="0" w:after="0" w:line="${lineVal}" w:lineRule="auto"/>`;
     }
-    if (o.ind)        x += `<w:ind w:left="${o.ind.l||0}"${o.ind.h ? ` w:hanging="${o.ind.h}"` : ""}/>`;
-    if (o.numId)      x += `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${o.numId}"/></w:numPr>`;
-    if (o.shd)        x += `<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>`;
-    if (o.keepNext)   x += "<w:keepNext/>";
+    // Indent
+    if (o.ind) x += `<w:ind w:left="${o.ind.l||0}"${o.ind.h ? ` w:hanging="${o.ind.h}"` : ""}/>`;
+    // Bullets
+    if (o.numId) x += `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${o.numId}"/></w:numPr>`;
+    // Shading (section backgrounds)
+    if (o.shd) x += `<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>`;
+    // Keep with next
+    if (o.keepNext) x += "<w:keepNext/>";
+    // Contextual spacing (collapses gap between same-style consecutive paras)
     if (o.ctxSpacing) x += "<w:contextualSpacing/>";
+    // Justification
     const jcVal = o.jc || (o.noJustify ? null : "both");
-    if (jcVal)        x += `<w:jc w:val="${jcVal}"/>`;
-    if (o.bdrB)       x += `<w:pBdr><w:bottom w:val="single" w:sz="${o.bdrB.sz||4}" w:space="1" w:color="${o.bdrB.c}"/></w:pBdr>`;
-    if (o.bdrL)       x += `<w:pBdr><w:left   w:val="single" w:sz="${o.bdrL.sz||12}" w:space="${o.bdrL.sp||4}" w:color="${o.bdrL.c}"/></w:pBdr>`;
+    if (jcVal) x += `<w:jc w:val="${jcVal}"/>`;
+    // Borders — MUST be one <w:pBdr> block containing all border children
+    if (o.bdrB || o.bdrL) {
+      let bdr = "";
+      if (o.bdrL) bdr += `<w:left   w:val="single" w:sz="${o.bdrL.sz||12}" w:space="${o.bdrL.sp||4}" w:color="${o.bdrL.c}"/>`;
+      if (o.bdrB) bdr += `<w:bottom w:val="single" w:sz="${o.bdrB.sz||4}"  w:space="1"               w:color="${o.bdrB.c}"/>`;
+      x += `<w:pBdr>${bdr}</w:pBdr>`;
+    }
     return x ? `<w:pPr>${x}</w:pPr>` : "";
   };
 
-  const pa  = (o = {}, runs = "") => `<w:p>${pp(o)}${runs}</w:p>`;
-  const gap = (b = 0, a = 0)     => pa({ spacing:{b,a}, noJustify:true, noLine:true });
+  const pa  = (o={}, runs="") => `<w:p>${pp(o)}${runs}</w:p>`;
+  const gap = (b=0, a=60)    => pa({ spacing:{b,a}, noJustify:true, noLine:true });
 
   let body = "";
 
@@ -368,139 +397,173 @@ function _buildDocumentXml(resumeText) {
   // HEADER BLOCK
   // ══════════════════════════════════════════════════════════════════════════
 
-  // NAME — 20pt bold, navy, left teal accent bar
+  // NAME — 20pt bold navy, thick teal left accent bar, standard letter spacing
   body += pa(
-    { spacing:{b:0,a:24}, bdrL:{sz:32,sp:10,c:T}, noJustify:true, jc:"left", noLine:true },
+    { spacing:{b:0,a:30}, bdrL:{sz:32,sp:10,c:T}, noJustify:true, jc:"left", noLine:true },
     ru(name, { bold:true, size:NAME_SZ, color:N })
   );
 
-  // POSITION — 13pt teal, always shown
-  const positionText = (tagline && tagline.trim()) ? tagline.trim() : "Professional";
+  // POSITION — 13pt teal, always shown (fallback "Professional")
+  const posText = (tagline && tagline.trim()) ? clean(tagline) : "Professional";
   body += pa(
-    { spacing:{b:0,a:20}, noJustify:true, jc:"left", noLine:true },
-    ru(positionText, { size:POS_SZ, color:T })
+    { spacing:{b:0,a:30}, noJustify:true, jc:"left", noLine:true },
+    ru(posText, { size:POS_SZ, color:T })
   );
 
-  // CONTACT — 10pt centred, teal dot separators
+  // CONTACT — 10pt centred, teal · separators
   for (const cl of contactLines) {
-    const parts = cl.split("|").map(p => p.trim()).filter(Boolean);
+    const sep   = cl.includes("·") ? "·" : "|";
+    const parts = cl.split(sep).map(p => clean(p)).filter(Boolean);
     let runs = "";
     parts.forEach((p, i) => {
       runs += ru(p, { size:SM, color:GR });
-      if (i < parts.length - 1) runs += ru("  ·  ", { size:SM, color:T, bold:true });
+      if (i < parts.length-1) runs += ru("  ·  ", { size:SM, color:T, bold:true });
     });
     body += pa({ spacing:{b:0,a:0}, noJustify:true, jc:"center", noLine:true }, runs);
   }
 
-  // Divider
-  body += pa({ spacing:{b:PRESET.DIVIDER_B,a:30}, bdrB:{sz:10,c:T}, noJustify:true, noLine:true });
+  // Full-width teal divider
+  body += pa({ spacing:{b:60,a:40}, bdrB:{sz:10,c:T}, noJustify:true, noLine:true });
 
   // ══════════════════════════════════════════════════════════════════════════
   // SECTIONS
   // ══════════════════════════════════════════════════════════════════════════
   for (const section of sections) {
-    const hh      = section.header.toUpperCase().trim();
+    const hh = section.header.toUpperCase().trim();
     const isExp   = /EXPERIENCE|EMPLOYMENT/.test(hh);
     const isSkill = /SKILL|COMPETENC/.test(hh);
     const isSys   = /SYSTEM|TECHNOLOG|CERTIF|ADDITIONAL|LICENC/.test(hh);
     const isEdu   = /EDUCATION|QUALIF/.test(hh);
 
-    // Section gap + heading
-    body += gap(PRESET.SEC_GAP_B, 0);
+    // SECTION HEADING — 12pt bold, navy shading, teal underline
+    // Note: NO bdrL here — only shd (background) and bdrB (underline via separate para)
+    body += gap(SGAP, 0);
     body += pa(
-      { spacing:{b:PRESET.PARA_B,a:0}, shd:NL, ind:{l:100}, keepNext:true,
-        noJustify:true, jc:"left", noLine:true },
+      { spacing:{b:50,a:0}, shd:NL, ind:{l:100},
+        keepNext:true, noJustify:true, jc:"left", noLine:true },
       ru("  " + hh + "  ", { bold:true, size:H2, color:N, caps:true })
     );
-    body += pa({ spacing:{b:0,a:40}, bdrB:{sz:4,c:T}, noJustify:true, noLine:true });
+    body += pa({ spacing:{b:0,a:50}, bdrB:{sz:4,c:T}, noJustify:true, noLine:true });
 
     let i = 0;
     while (i < section.items.length) {
-      const item  = section.items[i];
-      const next1 = section.items[i+1] || "";
-      const isBullet = /^[▪•\-]\s/.test(item);
-      const hasBar   = item.includes("|") && !isBullet;
-      const hasDate  = /\d{4}/.test(item) || /Present/.test(item);
-      const isDateLn = hasDate && hasBar && item.length < 100;
-      const isLocLn  = hasBar && !hasDate && item.length < 80;
+      const raw   = section.items[i] || "";
+      const item  = clean(raw);
+      const next1 = clean(section.items[i+1] || "");
 
+      if (!item) { i++; continue; }
+
+      const hasBulletPfx = isBulletLine(raw);
+      const autoBul      = !hasBulletPfx && isAutoBullet(raw, isExp);
+      const isBullet     = hasBulletPfx || autoBul;
+      const hasBar       = item.includes("|") && !hasBulletPfx;
+      const hasDate      = /\d{4}/.test(item) || /Present/.test(item);
+      const isDateLn     = hasDate && hasBar && item.length < 110;
+      const isLocOnly    = hasBar && !hasDate && item.length < 80;
+
+      // Strip bullet prefix for clean display text
+      const bulletTxt = item.replace(/^[▪•\-–—]\s*/, "").trim();
+
+      // ── BULLET POINT ────────────────────────────────────────────────────
       if (isBullet) {
-        // BULLET — 11pt justified, auto line spacing
         body += pa(
-          { spacing:{b:PRESET.BULLET_BA,a:PRESET.BULLET_BA}, numId:1, ctxSpacing:true },
-          ru(item.replace(/^[▪•\-]\s*/, ""), { size:BODY, color:BL })
+          { spacing:{b:BUL_S,a:BUL_S}, numId:1, ctxSpacing:true },
+          ru(bulletTxt, { size:BODY, color:BL })
         );
 
+      // ── SKILL / CERT ITEM — teal ▪, 11pt, NO left border ─────────────
       } else if (isSkill || isSys) {
-        // SKILL — teal ▪, 11pt justified
         body += pa(
-          { spacing:{b:PRESET.SKILL_BA,a:PRESET.SKILL_BA}, ind:{l:220,h:220} },
+          { spacing:{b:SKL_S,a:SKL_S}, ind:{l:220,h:220}, noJustify:true, jc:"left" },
           ru("▪  ", { size:BODY, color:T, bold:true })
-          + ru(item, { size:BODY, color:BL })
+          + ru(item, { size:BODY, color:BL, bold:false })
         );
 
+      // ── EDUCATION ────────────────────────────────────────────────────
       } else if (isEdu) {
         if (hasBar) {
           const [inst, ...rest] = item.split("|").map(p => p.trim());
           body += pa(
-            { spacing:{b:PRESET.BODY_BA,a:PRESET.BODY_BA} },
+            { spacing:{b:BOD_S,a:BOD_S} },
             ru(inst, { size:H2, color:GR, bold:true })
             + ru("  |  ", { size:SM, color:LG })
             + ru(rest.join("|"), { size:SM, color:MG, italic:true })
           );
         } else {
           body += pa(
-            { spacing:{b:PRESET.BODY_BA,a:4}, keepNext:true, noJustify:true, jc:"left", noLine:true },
+            { spacing:{b:BOD_S,a:4}, keepNext:true, noJustify:true, jc:"left", noLine:true },
             ru(item, { size:H2, color:BL, bold:true })
           );
         }
 
+      // ── EXPERIENCE SECTION ────────────────────────────────────────────
       } else if (isExp) {
-        if (!isDateLn && !isLocLn) {
-          const nextHasDate = /\d{4}|Present/.test(next1);
-          const nextIsOrg   = next1 && !nextHasDate
-            && !(/^[▪•]/.test(next1)) && !next1.includes("|");
-          const nextIsLoc2  = next1.includes("|")
-            && !(/^[▪•]/.test(next1)) && next1.length < 100;
 
-          if (nextIsOrg) {
-            body += gap(PRESET.SEC_GAP_B - 40, 0);
-            body += pa(
-              { spacing:{b:0,a:0}, keepNext:true, noJustify:true, jc:"left", noLine:true },
-              ru(item, { bold:true, size:H2, color:BL })
-            );
-            body += pa(
-              { spacing:{b:0,a:8}, keepNext:true, noJustify:true, jc:"left", noLine:true },
-              ru(next1, { size:BODY, color:T, italic:true })
-            );
-            i += 2; continue;
-          } else if (nextHasDate || nextIsLoc2) {
-            body += gap(PRESET.SEC_GAP_B - 40, 0);
-            body += pa(
-              { spacing:{b:0,a:8}, keepNext:true, noJustify:true, jc:"left", noLine:true },
-              ru(item, { bold:true, size:H2, color:BL })
-            );
-          } else {
-            body += pa(
-              { spacing:{b:0,a:8}, keepNext:true, noJustify:true, jc:"left", noLine:true },
-              ru(item, { size:BODY, color:T, italic:true })
-            );
-          }
-        } else {
-          // Date/location — 10pt amber italic
+        if (isDateLn || isLocOnly) {
+          // DATE / LOCATION — 10pt amber italic, pipe-split
           const parts = item.split("|").map(p => p.trim()).filter(Boolean);
           let runs = "";
           parts.forEach((p, idx) => {
             runs += ru(p, { size:SM, color:AM, italic:true });
-            if (idx < parts.length - 1) runs += ru("  |  ", { size:SM, color:LG });
+            if (idx < parts.length-1) runs += ru("  |  ", { size:SM, color:LG });
           });
-          body += pa({ spacing:{b:0,a:PRESET.BULLET_BA+10}, noJustify:true, jc:"left", noLine:true }, runs);
+          body += pa({ spacing:{b:0,a:60}, noJustify:true, jc:"left", noLine:true }, runs);
+
+        } else {
+          const nextHasDate = /\d{4}|Present/.test(next1);
+          const nextIsOrg   = next1 && !nextHasDate
+            && !isBulletLine(section.items[i+1]||"")
+            && !next1.includes("|")
+            && next1.length > 3;
+          const nextIsDate  = next1 && ((/\d{4}|Present/.test(next1) && next1.includes("|")) || nextHasDate);
+          const nextIsLoc   = next1.includes("|") && !nextHasDate && next1.length < 100;
+          const looksTitle  = item.length < 90;
+
+          if (nextIsOrg && looksTitle) {
+            // JOB TITLE — 12pt bold black
+            body += gap(SGAP - 30, 0);
+            body += pa(
+              { spacing:{b:0,a:0}, keepNext:true, noJustify:true, jc:"left", noLine:true },
+              ru(item, { bold:true, size:H2, color:BL })
+            );
+            // COMPANY NAME — 11pt teal italic
+            body += pa(
+              { spacing:{b:0,a:6}, keepNext:true, noJustify:true, jc:"left", noLine:true },
+              ru(next1, { size:BODY, color:T, italic:true })
+            );
+            i += 2; continue;
+
+          } else if ((nextIsDate || nextIsLoc) && looksTitle) {
+            // JOB TITLE only (date follows on next line)
+            body += gap(SGAP - 30, 0);
+            body += pa(
+              { spacing:{b:0,a:6}, keepNext:true, noJustify:true, jc:"left", noLine:true },
+              ru(item, { bold:true, size:H2, color:BL })
+            );
+
+          } else if (hasBar && hasDate) {
+            // Combined title|date line — treat as date
+            const parts = item.split("|").map(p => p.trim()).filter(Boolean);
+            let runs = "";
+            parts.forEach((p, idx) => {
+              runs += ru(p, { size:SM, color:AM, italic:true });
+              if (idx < parts.length-1) runs += ru("  |  ", { size:SM, color:LG });
+            });
+            body += pa({ spacing:{b:0,a:60}, noJustify:true, jc:"left", noLine:true }, runs);
+
+          } else {
+            // COMPANY / ORG — 11pt teal italic
+            body += pa(
+              { spacing:{b:0,a:6}, keepNext:true, noJustify:true, jc:"left", noLine:true },
+              ru(item, { size:BODY, color:T, italic:true })
+            );
+          }
         }
 
+      // ── GENERIC BODY — 11pt justified ────────────────────────────────
       } else {
-        // Generic 11pt justified
         body += pa(
-          { spacing:{b:PRESET.BODY_BA,a:PRESET.BODY_BA} },
+          { spacing:{b:BOD_S,a:BOD_S} },
           ru(item, { size:BODY, color:BL })
         );
       }
@@ -1223,9 +1286,9 @@ function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading,
             onClick={() => {
               setOptBusy(true);
               setCountdown(true);
-              const resumeTrimmed = resume.length > 3000 ? resume.slice(0,3000)+"\n[...]" : resume;
-              const user = `${jobDesc.trim() ? `JOB DESCRIPTION:\n${jobDesc.slice(0,800)}\n\n` : ""}RESUME:\n${resumeTrimmed}`;
-              callAI(OPTIMIZE_SYSTEM, user, apiKey, 4096)
+              // Send the FULL resume — never trim it, truncation causes incomplete output
+              const user = `${jobDesc.trim() ? `JOB DESCRIPTION:\n${jobDesc.slice(0,1000)}\n\n` : ""}RESUME TO OPTIMISE (return EVERY section in full):\n${resume}`;
+              callAI(OPTIMIZE_SYSTEM, user, apiKey, 6000)
                 .then(raw => extractJSON(raw))
                 .then(parsed => handleOptimize({ ...parsed, originalScore: ov }))
                 .catch(e => handleOptimize({ error: e.message }));
@@ -1243,7 +1306,7 @@ function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading,
                   borderRadius:"50%",display:"inline-block",animation:"riq-spin 0.8s linear infinite" }} />Optimising…</>)
               : <>✨ Optimise Resume for ATS</>}
           </button>
-          {optBusy && <LoadingWithCountdown seconds={25} action="optimize" running={optBusy} />}
+          {optBusy && <LoadingWithCountdown seconds={40} action="optimize" running={optBusy} />}
           <p style={{ fontSize:12, color:"#475569", marginTop:8 }}>
             Adds missing keywords · Strengthens bullet points · Boosts ATS score · Download as .docx
           </p>

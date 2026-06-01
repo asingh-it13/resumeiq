@@ -17,7 +17,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",   // 98% cheaper than Opus
-        max_tokens: req.body.maxTokens || 2048,
+        max_tokens: Math.min(Number(req.body.maxTokens) || 2048, 8096),  // cap at 8096 for safety
         system,
         messages: [{ role: "user", content: user }],
       }),

@@ -616,13 +616,14 @@ function OptimizeBtn({ resume, jobDesc, originalScore, onResult, disabled, apiKe
 // OPTIMIZE RESULTS PANEL
 // ─────────────────────────────────────────────────────────────────────────────
 function OptimizePanel({ data, resultRef }) {
-  const [copied,    setCopied]    = useState(false);
-  const [dlBusy,    setDlBusy]    = useState(false);
-  const [dlDone,    setDlDone]    = useState(false);
-  const [dlErr,     setDlErr]     = useState("");
-  const [docxBuffer,setDocxBuffer]= useState(null);
+  const [copied,     setCopied]     = useState(false);
+  const [dlBusy,     setDlBusy]     = useState(false);
+  const [dlDone,     setDlDone]     = useState(false);
+  const [dlErr,      setDlErr]      = useState("");
+  const [docxBuffer, setDocxBuffer] = useState(null);
+  const [showFull,   setShowFull]   = useState(false);
 
-  // Pre-build DOCX in background as soon as data arrives — download becomes instant
+  // Pre-build DOCX the moment data arrives
   useEffect(() => {
     if (!data || data.error || !data.optimizedResume) return;
     setDocxBuffer(null);
@@ -637,161 +638,169 @@ function OptimizePanel({ data, resultRef }) {
     </div>
   );
 
-  const oldScore = Number(data.originalScore)||0;
-  const newScore = Number(data.newAtsScore)||0;
+  const oldScore = Number(data.originalScore) || 0;
+  const newScore = Number(data.newAtsScore)    || 0;
   const diff     = newScore - oldScore;
 
   const handleDownload = async () => {
     if (dlBusy) return;
     setDlBusy(true); setDlErr("");
     try {
-      // Use pre-built buffer if available (instant) — otherwise build now (rare)
       await downloadDocx(data.optimizedResume, "Optimised_Resume.docx", docxBuffer || null);
-      setDlDone(true); setTimeout(()=>setDlDone(false), 4000);
+      setDlDone(true); setTimeout(() => setDlDone(false), 4000);
     } catch(e) {
       setDlErr(e.message || "Download failed");
-      setTimeout(()=>setDlErr(""), 5000);
+      setTimeout(() => setDlErr(""), 5000);
     } finally { setDlBusy(false); }
   };
 
+  const cardStyle = { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:16, padding:24, marginBottom:16 };
+  const secTitle  = (color="#7c5cfc") => ({ fontSize:11, fontWeight:700, color, textTransform:"uppercase", letterSpacing:"1.8px", marginBottom:16, fontFamily:"'Space Mono',monospace" });
+
   return (
-    <div ref={resultRef} className="riq-fade" style={{ marginTop:28 }}>
+    <div ref={resultRef} className="riq-fade" style={{ marginTop:24 }}>
 
-      {/* ── Score comparison banner ── */}
-      <div style={{ background:"linear-gradient(135deg,rgba(245,200,66,0.08),rgba(0,229,160,0.06))",
-        border:"1px solid rgba(245,200,66,0.25)", borderRadius:16, padding:28, marginBottom:20, textAlign:"center" }}>
-        <div style={{ fontSize:11, fontWeight:700, color:"#f5c842", textTransform:"uppercase",
-          letterSpacing:"1.8px", marginBottom:20, fontFamily:"'Space Mono',monospace" }}>
-          ✨ ATS Optimisation Complete
-        </div>
+      {/* ── HERO — Score comparison + Download ─────────────────────────────── */}
+      <div style={{ background:"linear-gradient(135deg,rgba(0,229,160,0.07),rgba(245,200,66,0.05))",
+        border:"1px solid rgba(0,229,160,0.2)", borderRadius:20, padding:"28px 24px", marginBottom:16, textAlign:"center" }}>
 
-        {/* Before / After gauges */}
-        <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:16, flexWrap:"wrap", marginBottom:24 }}>
-          {/* Before */}
+        <div style={secTitle("#00e5a0")}>✨ Optimisation Complete</div>
+
+        {/* Score gauges */}
+        <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:20, flexWrap:"wrap", marginBottom:20 }}>
           <div style={{ textAlign:"center" }}>
-            <div style={{ fontSize:11, color:"#64748b", fontFamily:"'Space Mono',monospace", marginBottom:8, textTransform:"uppercase", letterSpacing:"1px" }}>Before</div>
+            <div style={{ fontSize:10, color:"#64748b", fontFamily:"'Space Mono',monospace", marginBottom:6, textTransform:"uppercase", letterSpacing:"1px" }}>Before</div>
             <div style={{ position:"relative", display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
-              <Gauge score={oldScore} size={130} />
+              <Gauge score={oldScore} size={118} />
               <div style={{ position:"absolute", textAlign:"center" }}>
-                <div style={{ fontSize:22, fontWeight:800, color:"#ff5b5b", lineHeight:1 }}>{oldScore}</div>
-                <div style={{ fontSize:9, color:"#64748b", fontFamily:"'Space Mono',monospace" }}>ATS SCORE</div>
+                <div style={{ fontSize:20, fontWeight:800, color:"#ff5b5b", lineHeight:1 }}>{oldScore}</div>
+                <div style={{ fontSize:8, color:"#64748b", fontFamily:"'Space Mono',monospace" }}>ATS</div>
               </div>
             </div>
           </div>
 
-          {/* Arrow */}
           <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
-            <div style={{ fontSize:28, color:"#f5c842" }}>→</div>
-            <div style={{ padding:"4px 12px", borderRadius:99, background:"#00e5a018",
+            <div style={{ fontSize:24 }}>→</div>
+            <div style={{ padding:"4px 10px", borderRadius:99, background:"#00e5a018",
               border:"1px solid #00e5a044", color:"#00e5a0", fontSize:13, fontWeight:800,
-              fontFamily:"'Space Mono',monospace" }}>
-              +{diff} pts
-            </div>
+              fontFamily:"'Space Mono',monospace" }}>+{diff} pts</div>
           </div>
 
-          {/* After */}
           <div style={{ textAlign:"center" }}>
-            <div style={{ fontSize:11, color:"#64748b", fontFamily:"'Space Mono',monospace", marginBottom:8, textTransform:"uppercase", letterSpacing:"1px" }}>After</div>
+            <div style={{ fontSize:10, color:"#64748b", fontFamily:"'Space Mono',monospace", marginBottom:6, textTransform:"uppercase", letterSpacing:"1px" }}>After</div>
             <div style={{ position:"relative", display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
-              <Gauge score={newScore} size={130} />
+              <Gauge score={newScore} size={118} />
               <div style={{ position:"absolute", textAlign:"center" }}>
-                <div style={{ fontSize:22, fontWeight:800, color:"#00e5a0", lineHeight:1 }}>{newScore}</div>
-                <div style={{ fontSize:9, color:"#64748b", fontFamily:"'Space Mono',monospace" }}>ATS SCORE</div>
+                <div style={{ fontSize:20, fontWeight:800, color:"#00e5a0", lineHeight:1 }}>{newScore}</div>
+                <div style={{ fontSize:8, color:"#64748b", fontFamily:"'Space Mono',monospace" }}>ATS</div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Score bar comparison */}
-        <div style={{ maxWidth:480, margin:"0 auto 20px" }}>
-          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
-            <span style={{ fontSize:12, color:"#64748b" }}>Before: {oldScore}/100</span>
-            <span style={{ fontSize:12, color:"#00e5a0", fontWeight:700 }}>After: {newScore}/100</span>
+        {/* Progress bar */}
+        <div style={{ maxWidth:440, margin:"0 auto 16px" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+            <span style={{ fontSize:11, color:"#64748b" }}>Before: {oldScore}/100</span>
+            <span style={{ fontSize:11, color:"#00e5a0", fontWeight:700 }}>After: {newScore}/100</span>
           </div>
-          <div style={{ height:10, borderRadius:99, background:"rgba(255,255,255,0.07)", overflow:"hidden", position:"relative" }}>
-            <div style={{ position:"absolute", height:"100%", width:`${oldScore}%`, borderRadius:99, background:"#ff5b5b66" }} />
+          <div style={{ height:8, borderRadius:99, background:"rgba(255,255,255,0.07)", overflow:"hidden", position:"relative" }}>
+            <div style={{ position:"absolute", height:"100%", width:`${oldScore}%`, borderRadius:99, background:"#ff5b5b55" }} />
             <div style={{ position:"absolute", height:"100%", width:`${newScore}%`, borderRadius:99,
-              background:"linear-gradient(90deg,#f5c84277,#00e5a0)",
-              boxShadow:"0 0 12px #00e5a055", transition:"width 1.2s ease" }} />
+              background:"linear-gradient(90deg,#f5c84266,#00e5a0)", boxShadow:"0 0 12px #00e5a044",
+              transition:"width 1.2s ease" }} />
           </div>
         </div>
 
         {data.verdict && (
-          <p style={{ color:"#94a3b8", fontSize:14, lineHeight:1.7, fontStyle:"italic", maxWidth:580, margin:"0 auto 20px" }}>
+          <p style={{ color:"#94a3b8", fontSize:13, lineHeight:1.6, fontStyle:"italic", maxWidth:540, margin:"0 auto 20px" }}>
             "{data.verdict}"
           </p>
         )}
 
-        {/* Download button */}
+        {/* ── DOWNLOAD BUTTON — BIG, PROMINENT ────────────────────────────── */}
         <button onClick={handleDownload} disabled={dlBusy}
-          style={{ display:"inline-flex", alignItems:"center", gap:8, padding:"13px 28px", borderRadius:12,
-            border:"none",
-            background: dlBusy ? "rgba(255,255,255,0.08)" : "linear-gradient(135deg,#00e5a0,#00b377)",
-            color: dlBusy ? "#64748b" : "#000", fontSize:15, fontWeight:800, fontFamily:"inherit",
-            cursor: dlBusy ? "not-allowed" : "pointer",
-            boxShadow: dlBusy ? "none" : "0 4px 24px #00e5a044", transition:"all 0.2s" }}>
+          style={{ display:"inline-flex", alignItems:"center", gap:10, padding:"15px 36px",
+            borderRadius:14, border:"none", fontSize:16, fontWeight:800, fontFamily:"inherit",
+            cursor:dlBusy?"not-allowed":"pointer", transition:"all 0.2s",
+            background:dlBusy?"rgba(255,255,255,0.07)":"linear-gradient(135deg,#00e5a0,#00b377)",
+            color:dlBusy?"#64748b":"#000",
+            boxShadow:dlBusy?"none":"0 6px 32px #00e5a055" }}>
           {dlBusy
-            ? (<><span style={{ width:16, height:16, border:"2px solid #64748b44", borderTopColor:"#64748b",
-                borderRadius:"50%", display:"inline-block", animation:"riq-spin 0.8s linear infinite" }} />Building .docx…</>)
+            ? (<><span style={{ width:18, height:18, border:"2px solid #64748b44", borderTopColor:"#64748b",
+                borderRadius:"50%", display:"inline-block", animation:"riq-spin 0.8s linear infinite" }}/>
+               Building .docx…</>)
             : dlDone ? "✅ Downloaded!"
             : docxBuffer ? "⚡ Download Optimised Resume (.docx)"
             : "⬇️ Download Optimised Resume (.docx)"}
         </button>
-        {docxBuffer && !dlDone && !dlBusy && (
-          <p style={{ fontSize:11, color:"#00e5a0", marginTop:6, fontFamily:"'Space Mono',monospace" }}>
-            ⚡ File ready — download is instant
-          </p>
+
+        {docxBuffer && !dlBusy && !dlDone && (
+          <p style={{ fontSize:11, color:"#00e5a0", marginTop:8, fontFamily:"'Space Mono',monospace" }}>⚡ Ready — instant download</p>
         )}
         {dlErr && <p style={{ color:"#ff5b5b", fontSize:12, marginTop:8 }}>⚠️ {dlErr}</p>}
       </div>
 
-      {/* ── Keywords added ── */}
-      {data.keywordsAdded?.length>0 && (
-        <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:16, padding:24, marginBottom:20 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:"#00e5a0", textTransform:"uppercase", letterSpacing:"1.8px", marginBottom:16, fontFamily:"'Space Mono',monospace" }}>
-            🔑 Keywords Added ({data.keywordsAdded.length})
-          </div>
-          <div>{data.keywordsAdded.map((k,i)=><Chip key={i} text={k} color="#00e5a0" />)}</div>
+      {/* ── KEYWORDS ADDED ─────────────────────────────────────────────────── */}
+      {data.keywordsAdded?.length > 0 && (
+        <div style={cardStyle}>
+          <div style={secTitle("#00e5a0")}>🔑 Keywords Added ({data.keywordsAdded.length})</div>
+          <div>{data.keywordsAdded.map((k,i) => <Chip key={i} text={k} color="#00e5a0" />)}</div>
         </div>
       )}
 
-      {/* ── Sections changed ── */}
-      {data.sectionsChanged?.length>0 && (
-        <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:16, padding:24, marginBottom:20 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:"#7c5cfc", textTransform:"uppercase", letterSpacing:"1.8px", marginBottom:16, fontFamily:"'Space Mono',monospace" }}>
-            📝 Sections Changed ({data.sectionsChanged.length})
-          </div>
-          {data.sectionsChanged.map((s,i)=>(
-            <div key={i} style={{ fontSize:13, color:"#94a3b8", marginBottom:8, paddingLeft:12,
-              borderLeft:"2px solid #7c5cfc", lineHeight:1.5 }}>✓ {s}</div>
+      {/* ── WHAT CHANGED ───────────────────────────────────────────────────── */}
+      {data.sectionsChanged?.length > 0 && (
+        <div style={cardStyle}>
+          <div style={secTitle("#7c5cfc")}>📝 What We Changed ({data.sectionsChanged.length} sections)</div>
+          {data.sectionsChanged.map((s,i) => (
+            <div key={i} style={{ fontSize:13, color:"#94a3b8", marginBottom:8,
+              paddingLeft:12, borderLeft:"2px solid #7c5cfc66", lineHeight:1.5 }}>
+              ✓ {s}
+            </div>
           ))}
         </div>
       )}
 
-      {/* ── Before / After improvements ── */}
-      {data.improvements?.length>0 && (
-        <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:16, padding:24, marginBottom:20 }}>
-          <div style={{ fontSize:11, fontWeight:700, color:"#f5c842", textTransform:"uppercase", letterSpacing:"1.8px", marginBottom:20, fontFamily:"'Space Mono',monospace" }}>
-            🔄 Before vs After — Key Changes
-          </div>
-          {data.improvements.map((item,i)=>(
-            <div key={i} style={{ marginBottom:20, paddingBottom:20, borderBottom: i<data.improvements.length-1?"1px solid rgba(255,255,255,0.06)":"none" }}>
-              <div style={{ fontSize:12, fontWeight:700, color:"#f5c842", marginBottom:12,
-                fontFamily:"'Space Mono',monospace", textTransform:"uppercase", letterSpacing:"0.8px" }}>
+      {/* ── BEFORE vs AFTER COMPARISON ─────────────────────────────────────── */}
+      {data.improvements?.length > 0 && (
+        <div style={cardStyle}>
+          <div style={secTitle("#f5c842")}>🔄 Before vs After — Every Change We Made</div>
+          {data.improvements.map((item, i) => (
+            <div key={i} style={{ marginBottom:20, paddingBottom:20,
+              borderBottom: i < data.improvements.length-1 ? "1px solid rgba(255,255,255,0.06)" : "none" }}>
+              {/* Section label */}
+              <div style={{ display:"inline-block", padding:"3px 10px", borderRadius:6,
+                background:"#f5c84215", border:"1px solid #f5c84233",
+                color:"#f5c842", fontSize:11, fontWeight:700, fontFamily:"'Space Mono',monospace",
+                marginBottom:12, textTransform:"uppercase", letterSpacing:"0.8px" }}>
                 {item.section}
               </div>
-              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-                <div style={{ padding:"12px 14px", background:"#ff5b5b0a", border:"1px solid #ff5b5b22",
-                  borderRadius:10, fontSize:13, color:"#94a3b8", lineHeight:1.6 }}>
-                  <div style={{ fontSize:10, color:"#ff5b5b", fontWeight:700, fontFamily:"'Space Mono',monospace",
-                    marginBottom:6, textTransform:"uppercase", letterSpacing:"1px" }}>❌ Before</div>
-                  {item.before}
+              {/* Side-by-side diff */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                <div style={{ padding:"12px 14px", background:"rgba(255,91,91,0.05)",
+                  border:"1px solid rgba(255,91,91,0.18)", borderRadius:10 }}>
+                  <div style={{ fontSize:10, color:"#ff5b5b", fontWeight:700,
+                    fontFamily:"'Space Mono',monospace", marginBottom:8,
+                    textTransform:"uppercase", letterSpacing:"1px", display:"flex", alignItems:"center", gap:5 }}>
+                    <span style={{ display:"inline-block", width:14, height:14, borderRadius:99,
+                      background:"#ff5b5b22", border:"1px solid #ff5b5b44",
+                      textAlign:"center", lineHeight:"14px", fontSize:9 }}>✕</span>
+                    Before
+                  </div>
+                  <div style={{ fontSize:13, color:"#94a3b8", lineHeight:1.6 }}>{item.before}</div>
                 </div>
-                <div style={{ padding:"12px 14px", background:"#00e5a00a", border:"1px solid #00e5a022",
-                  borderRadius:10, fontSize:13, color:"#e2e8f0", lineHeight:1.6 }}>
-                  <div style={{ fontSize:10, color:"#00e5a0", fontWeight:700, fontFamily:"'Space Mono',monospace",
-                    marginBottom:6, textTransform:"uppercase", letterSpacing:"1px" }}>✅ After</div>
-                  {item.after}
+                <div style={{ padding:"12px 14px", background:"rgba(0,229,160,0.05)",
+                  border:"1px solid rgba(0,229,160,0.18)", borderRadius:10 }}>
+                  <div style={{ fontSize:10, color:"#00e5a0", fontWeight:700,
+                    fontFamily:"'Space Mono',monospace", marginBottom:8,
+                    textTransform:"uppercase", letterSpacing:"1px", display:"flex", alignItems:"center", gap:5 }}>
+                    <span style={{ display:"inline-block", width:14, height:14, borderRadius:99,
+                      background:"#00e5a022", border:"1px solid #00e5a044",
+                      textAlign:"center", lineHeight:"14px", fontSize:9 }}>✓</span>
+                    After
+                  </div>
+                  <div style={{ fontSize:13, color:"#e2e8f0", lineHeight:1.6 }}>{item.after}</div>
                 </div>
               </div>
             </div>
@@ -799,42 +808,49 @@ function OptimizePanel({ data, resultRef }) {
         </div>
       )}
 
-      {/* ── Full optimised resume ── */}
-      {data.optimizedResume && (
-        <div style={{ background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:16, padding:24, marginBottom:20 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:12, marginBottom:16 }}>
-            <div style={{ fontSize:11, fontWeight:700, color:"#7c5cfc", textTransform:"uppercase", letterSpacing:"1.8px", fontFamily:"'Space Mono',monospace" }}>
-              📄 Full Optimised Resume
-            </div>
-            <div style={{ display:"flex", gap:10 }}>
-              <button onClick={()=>{ safeCopy(data.optimizedResume); setCopied(true); setTimeout(()=>setCopied(false),2200); }}
-                style={{ padding:"8px 16px", borderRadius:9, border:"1px solid rgba(255,255,255,0.14)",
-                  background:"rgba(255,255,255,0.05)", color:"#94a3b8", fontSize:13, fontWeight:600,
-                  fontFamily:"inherit", cursor:"pointer" }}>
-                {copied?"✅ Copied!":"📋 Copy"}
-              </button>
-              <button onClick={handleDownload} disabled={dlBusy}
-                style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"8px 16px", borderRadius:9,
-                  border:"1px solid #00e5a044", background:"#00e5a014",
-                  color: dlBusy ? "#64748b" : "#00e5a0", fontSize:13, fontWeight:600,
-                  fontFamily:"inherit", cursor: dlBusy ? "not-allowed" : "pointer", opacity: dlBusy?0.6:1 }}>
-                {dlBusy
-                  ? (<><span style={{ width:12, height:12, border:"2px solid #64748b44", borderTopColor:"#64748b",
-                      borderRadius:"50%", display:"inline-block", animation:"riq-spin 0.7s linear infinite" }} />Building…</>)
-                  : dlDone ? "✅ Done!" : "⬇️ Download .docx"}
-              </button>
-            </div>
+      {/* ── FULL OPTIMISED RESUME ───────────────────────────────────────────── */}
+      <div style={cardStyle}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:10, marginBottom:16 }}>
+          <div style={secTitle("#7c5cfc")}>📄 Full Optimised Resume</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <button onClick={() => setShowFull(v => !v)}
+              style={{ padding:"7px 14px", borderRadius:8,
+                border:"1px solid rgba(255,255,255,0.12)", background:"rgba(255,255,255,0.05)",
+                color:"#64748b", fontSize:12, fontWeight:600, fontFamily:"inherit", cursor:"pointer" }}>
+              {showFull ? "🔼 Collapse" : "🔽 Expand"}
+            </button>
+            <button onClick={() => { safeCopy(data.optimizedResume); setCopied(true); setTimeout(()=>setCopied(false),2200); }}
+              style={{ padding:"7px 14px", borderRadius:8,
+                border:"1px solid rgba(255,255,255,0.12)", background:"rgba(255,255,255,0.05)",
+                color:"#94a3b8", fontSize:12, fontWeight:600, fontFamily:"inherit", cursor:"pointer" }}>
+              {copied ? "✅ Copied!" : "📋 Copy"}
+            </button>
+            <button onClick={handleDownload} disabled={dlBusy}
+              style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"7px 14px",
+                borderRadius:8, border:"1px solid #00e5a044", background:"#00e5a012",
+                color:dlBusy?"#64748b":"#00e5a0", fontSize:12, fontWeight:700,
+                fontFamily:"inherit", cursor:dlBusy?"not-allowed":"pointer" }}>
+              {dlBusy ? "Building…" : dlDone ? "✅ Done!" : "⬇️ .docx"}
+            </button>
           </div>
-          <pre style={{ whiteSpace:"pre-wrap", fontSize:13, color:"#94a3b8", lineHeight:1.9,
-            fontFamily:"inherit", background:"rgba(255,255,255,0.02)", padding:20,
-            borderRadius:10, border:"1px solid rgba(255,255,255,0.06)" }}>
+        </div>
+        {showFull && (
+          <pre style={{ whiteSpace:"pre-wrap", fontSize:12, color:"#94a3b8", lineHeight:1.8,
+            fontFamily:"inherit", background:"rgba(255,255,255,0.02)", padding:18,
+            borderRadius:10, border:"1px solid rgba(255,255,255,0.05)", maxHeight:600, overflowY:"auto" }}>
             {data.optimizedResume}
           </pre>
-        </div>
-      )}
+        )}
+        {!showFull && (
+          <div style={{ fontSize:13, color:"#475569", textAlign:"center", padding:"12px 0" }}>
+            Click <strong style={{color:"#94a3b8"}}>Expand</strong> to read the full resume, or download the .docx directly above ↑
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCORE PANEL
@@ -867,6 +883,11 @@ function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading,
   const ov=Number(data.overallScore)||0, hc=Number(data.hireChance)||0;
   const ovc=ov>=75?"#00e5a0":ov>=50?"#f5c842":"#ff5b5b";
   const hcc=hc>=65?"#00e5a0":hc>=40?"#f5c842":"#ff5b5b";
+
+  // Once optimised — hide the score panel, show only optimization results
+  if (optData && !optData.error) {
+    return <OptimizePanel data={optData} resultRef={optRef} />;
+  }
 
   return (
     <div ref={resultRef} className="riq-fade" style={{ marginTop:32 }}>
@@ -1111,30 +1132,50 @@ export default function App() {
           </div>
         </div>
 
-        {/* API KEY BANNER */}
-        <div style={{ background:"rgba(255,255,255,0.03)", border:`1px solid ${apiKey.trim().startsWith("sk-ant-") ? "#00e5a033" : "#f5c84244"}`, borderRadius:12, padding:"14px 18px", marginBottom:20, display:"flex", flexWrap:"wrap", alignItems:"center", gap:12 }}>
-          <div style={{ flex:"0 0 auto" }}>
-            <div style={{ fontSize:12, fontWeight:700, color: apiKey.trim().startsWith("sk-ant-") ? "#00e5a0" : "#f5c842", fontFamily:"'Space Mono',monospace" }}>
-              {apiKey.trim().startsWith("sk-ant-") ? "✅ API Key Connected" : "🔑 Enter Your Anthropic API Key"}
+        {/* API KEY — collapsed pill, expands on click */}
+        {(() => {
+          const connected = apiKey.trim().startsWith("sk-ant-");
+          return (
+            <div style={{ marginBottom:16 }}>
+              {!keyVisible ? (
+                <div style={{ display:"flex", justifyContent:"flex-end" }}>
+                  <button onClick={()=>setKeyVisible(true)}
+                    style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"6px 14px",
+                      borderRadius:99, border:`1px solid ${connected?"#00e5a033":"#f5c84244"}`,
+                      background:connected?"#00e5a00c":"#f5c8420c",
+                      color:connected?"#00e5a0":"#f5c842", fontSize:12, fontWeight:600,
+                      fontFamily:"'Space Mono',monospace", cursor:"pointer" }}>
+                    {connected ? "🔒 API Key Connected" : "🔑 Add API Key"}
+                  </button>
+                </div>
+              ) : (
+                <div style={{ background:"rgba(255,255,255,0.03)", border:`1px solid ${connected?"#00e5a033":"#f5c84244"}`,
+                  borderRadius:12, padding:"14px 16px", display:"flex", flexWrap:"wrap", alignItems:"center", gap:10 }}>
+                  <div style={{ flex:"0 0 auto" }}>
+                    <div style={{ fontSize:12, fontWeight:700, color:connected?"#00e5a0":"#f5c842", fontFamily:"'Space Mono',monospace" }}>
+                      {connected ? "✅ API Key Active" : "🔑 Anthropic API Key"}
+                    </div>
+                    <div style={{ fontSize:11, color:"#475569", marginTop:2 }}>
+                      {connected ? "~$0.001 per analysis · get yours at console.anthropic.com" : "Get free key → console.anthropic.com"}
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", flex:"1 1 240px", gap:8, alignItems:"center" }}>
+                    <input type="password" placeholder="sk-ant-api03-..."
+                      value={apiKey} onChange={e=>saveKey(e.target.value)}
+                      style={{ flex:1, background:"rgba(255,255,255,0.05)",
+                        border:`1px solid ${connected?"#00e5a044":"rgba(255,255,255,0.15)"}`,
+                        borderRadius:8, padding:"8px 12px", color:"#e2e8f0", fontSize:13,
+                        fontFamily:"'Space Mono',monospace", outline:"none" }} />
+                    <button onClick={()=>setKeyVisible(false)}
+                      style={{ background:"none", border:"none", cursor:"pointer", color:"#64748b", fontSize:18, lineHeight:1, padding:"4px 6px" }}>
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-            <div style={{ fontSize:11, color:"#475569", marginTop:3 }}>
-              {apiKey.trim().startsWith("sk-ant-") ? "All features active — costs ~$0.001 per analysis" : "Get a free key at console.anthropic.com — costs ~$0.001 per use"}
-            </div>
-          </div>
-          <div style={{ display:"flex", flex:"1 1 280px", gap:8, alignItems:"center" }}>
-            <input
-              type={keyVisible ? "text" : "password"}
-              placeholder="sk-ant-api03-..."
-              value={apiKey}
-              onChange={e => saveKey(e.target.value)}
-              style={{ flex:1, background:"rgba(255,255,255,0.05)", border:`1px solid ${apiKey.trim().startsWith("sk-ant-") ? "#00e5a044" : "rgba(255,255,255,0.15)"}`, borderRadius:8, padding:"9px 14px", color:"#e2e8f0", fontSize:13, fontFamily:"'Space Mono',monospace", outline:"none" }}
-            />
-            <button onClick={()=>setKeyVisible(v=>!v)}
-              style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:8, padding:"9px 12px", color:"#64748b", cursor:"pointer", fontSize:13 }}>
-              {keyVisible ? "🙈" : "👁️"}
-            </button>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* TABS */}
         <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,0.04)", borderRadius:12, padding:4, marginBottom:28, overflowX:"auto" }}>

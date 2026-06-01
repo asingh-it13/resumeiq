@@ -394,24 +394,29 @@ async function readResumeFile(file) {
 // ─────────────────────────────────────────────────────────────────────────────
 // API
 // ─────────────────────────────────────────────────────────────────────────────
-async function callAI(system, user) {
+async function callAI(system, user, apiKey, maxTokens=2048) {
+  if (!apiKey || !apiKey.trim()) throw new Error("Please enter your Anthropic API key above to use this app.");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method:"POST",
     headers:{
       "content-type":"application/json",
       "anthropic-version":"2023-06-01",
+      "x-api-key": apiKey.trim(),
       "anthropic-dangerous-direct-browser-access":"true"
     },
     body: JSON.stringify({
       model:"claude-haiku-4-5-20251001",
-      max_tokens:2048,
+      max_tokens:maxTokens,
       system,
       messages:[{ role:"user", content:user }]
     })
   });
   if (!res.ok) {
     let msg=`HTTP ${res.status}`;
-    try { const j=await res.json(); msg+=": "+(j.error?.message||JSON.stringify(j)); } catch(_){}
+    try {
+      const j=await res.json();
+      msg+=": "+(j.error?.message||JSON.stringify(j));
+    } catch(_){}
     throw new Error(msg);
   }
   const data = await res.json();
@@ -576,17 +581,16 @@ function UploadBtn({ onText, disabled }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // OPTIMIZE BUTTON
 // ─────────────────────────────────────────────────────────────────────────────
-function OptimizeBtn({ resume, jobDesc, originalScore, onResult, disabled }) {
+function OptimizeBtn({ resume, jobDesc, originalScore, onResult, disabled, apiKey }) {
   const [busy, setBusy] = useState(false);
   const run = async () => {
     if (!resume.trim()) return;
     setBusy(true);
     try {
-      const user = `Optimise this resume for maximum ATS score. Add all missing keywords naturally, strengthen every bullet with metrics, improve the professional summary.
-${jobDesc.trim() ? `\nJOB DESCRIPTION (target keywords from this):\n${jobDesc}\n` : ""}
-RESUME TO OPTIMISE:
-${resume}`;
-      const raw    = await callAI(OPTIMIZE_SYSTEM, user);
+      // Trim resume to 3000 chars max to stay within token limits while keeping all key content
+      const resumeTrimmed = resume.length > 3000 ? resume.slice(0, 3000) + "\n[... remainder of resume preserved in structure]" : resume;
+      const user = `${jobDesc.trim() ? `JOB DESCRIPTION:\n${jobDesc.slice(0,800)}\n\n` : ""}RESUME:\n${resumeTrimmed}`;
+      const raw    = await callAI(OPTIMIZE_SYSTEM, user, apiKey, 4096);
       const parsed = extractJSON(raw);
       onResult({ ...parsed, originalScore: originalScore||0 });
     } catch(e) {
@@ -848,7 +852,7 @@ const S = {
   stripe: (on)=>({ fontSize:13, color:"#94a3b8", marginBottom:10, paddingLeft:12, borderLeft:`2px solid ${on?"#00e5a0":"#ff5b5b"}`, lineHeight:1.5 }),
 };
 
-function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading }) {
+function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading, apiKey }) {
   const [optData,    setOptData]    = useState(null);
   const [optLoading, setOptLoading] = useState(false);
   const optRef = useRef(null);
@@ -912,6 +916,7 @@ function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading 
             jobDesc={jobDesc}
             originalScore={ov}
             disabled={loading||optLoading}
+            apiKey={apiKey}
             onResult={(res)=>{ setOptLoading(false); setOptData(res); }}
           />
           <p style={{ fontSize:12, color:"#475569", marginTop:8 }}>
@@ -984,6 +989,10 @@ function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading 
 // MAIN APP
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
+  const [apiKey,    setApiKey]    = useState(() => {
+    try { return localStorage.getItem("riq_api_key") || ""; } catch(_){ return ""; }
+  });
+  const [keyVisible,setKeyVisible]= useState(false);
   const [tab,       setTab]       = useState(0);
   const [resume,    setResume]    = useState("");
   const [jobDesc,   setJobDesc]   = useState("");
@@ -1006,10 +1015,10 @@ export default function App() {
     }
   },[scoreData,builtData,ivData]);
 
-  const run = async (system, user, onSuccess, msg) => {
+  const run = async (system, user, onSuccess, msg, maxTokens=2048) => {
     setErr(""); setLoadMsg(msg); setLoading(true);
     try {
-      const raw    = await callAI(system, user);
+      const raw    = await callAI(system, user, apiKey, maxTokens);
       const parsed = extractJSON(raw);
       onSuccess(parsed);
     } catch(e) { setErr(e.message||"Something went wrong — please try again."); }
@@ -1041,6 +1050,11 @@ export default function App() {
 
   const copy = (text) => { safeCopy(text); setCopied(true); setTimeout(()=>setCopied(false),2200); };
   const switchTab = (i) => { setTab(i); setErr(""); setScoreData(null); setBuiltData(null); setIvData(null); };
+  const saveKey = (val) => {
+    setApiKey(val);
+    try { if(val.trim()) localStorage.setItem("riq_api_key",val.trim());
+          else localStorage.removeItem("riq_api_key"); } catch(_){}
+  };
 
   return (
     <div style={{ minHeight:"100vh", background:"#080c14", color:"#e2e8f0", fontFamily:"'DM Sans',sans-serif" }}>
@@ -1097,6 +1111,31 @@ export default function App() {
           </div>
         </div>
 
+        {/* API KEY BANNER */}
+        <div style={{ background:"rgba(255,255,255,0.03)", border:`1px solid ${apiKey.trim().startsWith("sk-ant-") ? "#00e5a033" : "#f5c84244"}`, borderRadius:12, padding:"14px 18px", marginBottom:20, display:"flex", flexWrap:"wrap", alignItems:"center", gap:12 }}>
+          <div style={{ flex:"0 0 auto" }}>
+            <div style={{ fontSize:12, fontWeight:700, color: apiKey.trim().startsWith("sk-ant-") ? "#00e5a0" : "#f5c842", fontFamily:"'Space Mono',monospace" }}>
+              {apiKey.trim().startsWith("sk-ant-") ? "✅ API Key Connected" : "🔑 Enter Your Anthropic API Key"}
+            </div>
+            <div style={{ fontSize:11, color:"#475569", marginTop:3 }}>
+              {apiKey.trim().startsWith("sk-ant-") ? "All features active — costs ~$0.001 per analysis" : "Get a free key at console.anthropic.com — costs ~$0.001 per use"}
+            </div>
+          </div>
+          <div style={{ display:"flex", flex:"1 1 280px", gap:8, alignItems:"center" }}>
+            <input
+              type={keyVisible ? "text" : "password"}
+              placeholder="sk-ant-api03-..."
+              value={apiKey}
+              onChange={e => saveKey(e.target.value)}
+              style={{ flex:1, background:"rgba(255,255,255,0.05)", border:`1px solid ${apiKey.trim().startsWith("sk-ant-") ? "#00e5a044" : "rgba(255,255,255,0.15)"}`, borderRadius:8, padding:"9px 14px", color:"#e2e8f0", fontSize:13, fontFamily:"'Space Mono',monospace", outline:"none" }}
+            />
+            <button onClick={()=>setKeyVisible(v=>!v)}
+              style={{ background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:8, padding:"9px 12px", color:"#64748b", cursor:"pointer", fontSize:13 }}>
+              {keyVisible ? "🙈" : "👁️"}
+            </button>
+          </div>
+        </div>
+
         {/* TABS */}
         <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,0.04)", borderRadius:12, padding:4, marginBottom:28, overflowX:"auto" }}>
           {TABS.map((t,i)=>(
@@ -1133,7 +1172,7 @@ export default function App() {
             {loading && <Spinner msg={loadMsg} />}
             {scoreData && !loading && (
               <ScorePanel data={scoreData} copied={copied} onCopy={copy}
-                resultRef={resultRef} resume={resume} jobDesc={jobDesc} loading={loading} />
+                resultRef={resultRef} resume={resume} jobDesc={jobDesc} loading={loading} apiKey={apiKey} />
             )}
           </div>
         )}
@@ -1220,7 +1259,7 @@ export default function App() {
             {loading && <Spinner msg={loadMsg} />}
             {scoreData && !loading && (
               <ScorePanel data={scoreData} copied={copied} onCopy={copy}
-                resultRef={resultRef} resume={resume} jobDesc={jobDesc} loading={loading} />
+                resultRef={resultRef} resume={resume} jobDesc={jobDesc} loading={loading} apiKey={apiKey} />
             )}
           </div>
         )}

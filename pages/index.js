@@ -1,4 +1,4 @@
-// ResumeIQ Pro — Next.js page (API calls go through /api/ai server route)
+// ResumeIQ Pro v5 — with ATS Optimizer + Before/After comparison + Download
 import { useState, useEffect, useRef } from "react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,24 +31,21 @@ function fbCopy(text) {
 // No preload needed — pure JS, no CDN, no waiting
 function preloadDocxLib() {}
 
-// Parse plain-text resume into structured sections
+// ── Resume parser — handles all section name variants ──────────────────────
 function parseResumeText(text) {
   const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-  const SECTION_KEYWORDS = [
+  const SECTION_KW = [
     "PROFESSIONAL SUMMARY","SUMMARY","EXECUTIVE SUMMARY","PROFILE","CAREER OBJECTIVE",
-    "KEY SKILLS","SKILLS","CORE COMPETENCIES","TECHNICAL SKILLS","AREAS OF EXPERTISE",
+    "KEY SKILLS","KEY SKILLS & COMPETENCIES","SKILLS","CORE COMPETENCIES",
+    "TECHNICAL SKILLS","AREAS OF EXPERTISE","SYSTEMS & TECHNOLOGY",
     "PROFESSIONAL EXPERIENCE","EXPERIENCE","WORK EXPERIENCE","EMPLOYMENT HISTORY","EMPLOYMENT",
-    "EDUCATION","QUALIFICATIONS","ACADEMIC BACKGROUND",
-    "LICENCES","LICENSES","LICENCES & CERTIFICATIONS","CERTIFICATIONS","ACCREDITATIONS",
+    "EDUCATION","EDUCATION & QUALIFICATIONS","QUALIFICATIONS","ACADEMIC BACKGROUND",
+    "LICENCES","LICENSES","LICENCES & CERTIFICATIONS","CERTIFICATIONS",
+    "CERTIFICATIONS & ADDITIONAL INFORMATION","ACCREDITATIONS",
     "ACHIEVEMENTS","KEY ACHIEVEMENTS","AWARDS",
     "REFERENCES","REFEREES"
   ];
-  const isSection = l => {
-    const clean = l.toUpperCase().replace(/[^A-Z& ]/g, "").trim();
-    return SECTION_KEYWORDS.some(k => clean === k || clean === k + "S");
-  };
-  const isBullet  = l => /^[▪•\-–—*]\s/.test(l);
-
+  const isSection = l => SECTION_KW.some(k => l.toUpperCase().trim() === k);
   let headerLines = [], sections = [], curr = null;
   for (const line of lines) {
     if (isSection(line)) {
@@ -61,130 +58,241 @@ function parseResumeText(text) {
     }
   }
   if (curr) sections.push(curr);
-
   return {
-    name:     headerLines[0] || "Resume",
-    tagline:  headerLines[1] || "",
-    contact:  headerLines.slice(2).join("  |  "),
+    name:         headerLines[0] || "Resume",
+    tagline:      headerLines[1] || "",
+    contactLines: headerLines.slice(2),
     sections,
   };
 }
 
-// ── XML helpers ────────────────────────────────────────────────────────────
+// ── XML escape ────────────────────────────────────────────────────────────────
 function xmlEsc(s) {
   return String(s)
     .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
     .replace(/"/g,"&quot;").replace(/'/g,"&apos;");
 }
 
-// ── Paragraph XML builders ──────────────────────────────────────────────────
-function wPr(opts={}) {
-  const parts = [];
-  if (opts.spacing) parts.push(`<w:spacing w:before="${opts.spacing.before||0}" w:after="${opts.spacing.after||0}"/>`);
-  if (opts.borderBottom) parts.push(`<w:pBdr><w:bottom w:val="single" w:sz="${opts.borderBottom.sz||6}" w:space="1" w:color="${opts.borderBottom.color||"000000"}"/></w:pBdr>`);
-  if (opts.numId) parts.push(`<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${opts.numId}"/></w:numPr>`);
-  return parts.length ? `<w:pPr>${parts.join("")}</w:pPr>` : "";
+// ── Low-level XML builders ────────────────────────────────────────────────────
+function rpr(o={}) {
+  let x="";
+  if(o.font)    x+=`<w:rFonts w:ascii="${o.font}" w:hAnsi="${o.font}" w:cs="${o.font}"/>`;
+  if(o.bold)    x+="<w:b/><w:bCs/>";
+  if(o.italic)  x+="<w:i/><w:iCs/>";
+  if(o.size)    x+=`<w:sz w:val="${o.size}"/><w:szCs w:val="${o.size}"/>`;
+  if(o.color)   x+=`<w:color w:val="${o.color}"/>`;
+  if(o.spacing) x+=`<w:spacing w:val="${o.spacing}"/>`;
+  if(o.caps)    x+="<w:caps/>";
+  return x ? `<w:rPr>${x}</w:rPr>` : "";
 }
 
-function wRPr(opts={}) {
-  const parts = [];
-  if (opts.bold)    parts.push("<w:b/><w:bCs/>");
-  if (opts.italic)  parts.push("<w:i/><w:iCs/>");
-  if (opts.size)    parts.push(`<w:sz w:val="${opts.size}"/><w:szCs w:val="${opts.size}"/>`);
-  if (opts.color)   parts.push(`<w:color w:val="${opts.color}"/>`);
-  if (opts.font)    parts.push(`<w:rFonts w:ascii="${opts.font}" w:hAnsi="${opts.font}" w:cs="${opts.font}"/>`);
-  return parts.length ? `<w:rPr>${parts.join("")}</w:rPr>` : "";
+function run(text, o={}) {
+  if (!text && text !== 0) return "";
+  return `<w:r>${rpr(o)}<w:t xml:space="preserve">${xmlEsc(text)}</w:t></w:r>`;
 }
 
-function wRun(text, rOpts={}) {
-  if (!text) return "";
-  return `<w:r>${wRPr(rOpts)}<w:t xml:space="preserve">${xmlEsc(text)}</w:t></w:r>`;
+function ppr(o={}) {
+  let x="";
+  if(o.spacing)  x+=`<w:spacing w:before="${o.spacing.before||0}" w:after="${o.spacing.after||0}" ${o.spacing.line?`w:line="${o.spacing.line}" w:lineRule="auto"`:""}/>`;
+  if(o.ind)      x+=`<w:ind w:left="${o.ind.left||0}" ${o.ind.hanging?`w:hanging="${o.ind.hanging}"`:""}/>`;
+  if(o.jc)       x+=`<w:jc w:val="${o.jc}"/>`;
+  if(o.numId)    x+=`<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${o.numId}"/></w:numPr>`;
+  if(o.shd)      x+=`<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>`;
+  if(o.keepNext) x+="<w:keepNext/>";
+  if(o.borderBottom) x+=`<w:pBdr><w:bottom w:val="single" w:sz="${o.borderBottom.sz||4}" w:space="1" w:color="${o.borderBottom.color||"000000"}"/></w:pBdr>`;
+  if(o.borderLeft)   x+=`<w:pBdr><w:left w:val="single" w:sz="${o.borderLeft.sz||12}" w:space="${o.borderLeft.space||4}" w:color="${o.borderLeft.color||"000000"}"/></w:pBdr>`;
+  if(o.borderAll)    x+=`<w:pBdr><w:left w:val="single" w:sz="${o.borderAll.sz}" w:space="${o.borderAll.space||4}" w:color="${o.borderAll.color}"/><w:bottom w:val="single" w:sz="${o.borderAll.sz}" w:space="${o.borderAll.space||4}" w:color="${o.borderAll.color}"/><w:right w:val="single" w:sz="${o.borderAll.sz}" w:space="${o.borderAll.space||4}" w:color="${o.borderAll.color}"/></w:pBdr>`;
+  return x ? `<w:pPr>${x}</w:pPr>` : "";
 }
 
-function wPara(pOpts={}, runs="") {
-  return `<w:p>${wPr(pOpts)}${runs}</w:p>`;
+function para(pOpts={}, runs="") {
+  return `<w:p>${ppr(pOpts)}${runs}</w:p>`;
 }
 
-// ── Document XML builder ────────────────────────────────────────────────────
+function emptyPara(before=0,after=80) {
+  return para({spacing:{before,after}});
+}
+
+// ── Advanced document XML builder ─────────────────────────────────────────────
 function buildDocumentXml(resumeText) {
-  const { name, tagline, contact, sections } = parseResumeText(resumeText);
+  const { name, tagline, contactLines, sections } = parseResumeText(resumeText);
 
+  // Palette
   const NAVY  = "1B3A6B";
-  const GRAY  = "4A5568";
-  const LGRAY = "94A3B8";
-  const BLACK = "1A1A1A";
-  const RULE  = "CBD5E0";
+  const NAVYL = "E8EDF5";   // light navy for section shading
+  const TEAL  = "0D7C77";   // accent / teal for rules, bullets, company
+  const GRAY  = "374151";
+  const MGRAY = "6B7280";
+  const LGRAY = "9CA3AF";
+  const BLACK = "111827";
+  const AMBER = "92400E";   // date lines
   const FONT  = "Calibri";
 
   let body = "";
 
-  // Name
-  body += wPara(
-    { spacing:{before:0,after:40} },
-    wRun(name, {bold:true, size:56, color:NAVY, font:FONT})
+  // ── NAME — large, bold, navy, left accent bar ─────────────────────────────
+  body += para(
+    { spacing:{before:0,after:60}, borderLeft:{sz:28,space:10,color:TEAL} },
+    run(name, {bold:true, size:72, color:NAVY, font:FONT, spacing:20})
   );
-  // Tagline
-  if (tagline) body += wPara(
-    { spacing:{before:0,after:40} },
-    wRun(tagline, {size:26, color:GRAY, font:FONT})
-  );
-  // Contact
-  if (contact) body += wPara(
-    { spacing:{before:0,after:100} },
-    wRun(contact, {size:20, color:LGRAY, font:FONT})
-  );
-  // Navy rule
-  body += wPara({ spacing:{before:0,after:60}, borderBottom:{sz:8,color:NAVY} });
 
-  for (const section of sections) {
-    // Spacer
-    body += wPara({ spacing:{before:180,after:0} });
-    // Section heading
-    body += wPara(
-      { spacing:{before:0,after:60} },
-      wRun(section.header.toUpperCase(), {bold:true, size:22, color:NAVY, font:FONT})
+  // ── TAGLINE ──────────────────────────────────────────────────────────────
+  if (tagline) {
+    body += para(
+      { spacing:{before:0,after:50} },
+      run(tagline, {size:25, color:MGRAY, font:FONT})
     );
-    // Thin rule
-    body += wPara({ spacing:{before:0,after:100}, borderBottom:{sz:2,color:RULE} });
+  }
 
-    for (const item of section.items) {
-      const isBullet = /^[▪•\-–—*]\s/.test(item);
-      const hasBar   = item.includes("|") && !isBullet && item.length < 140;
-      const hasDate  = /\d{4}/.test(item) && item.includes("•") && item.length < 90;
+  // ── CONTACT LINES — pipe-separated with teal dots ─────────────────────────
+  for (const cl of contactLines) {
+    const parts = cl.split("|").map(p => p.trim());
+    let runs = "";
+    parts.forEach((p, i) => {
+      runs += run(p, {size:20, color:GRAY, font:FONT});
+      if (i < parts.length - 1)
+        runs += run("  ·  ", {size:20, color:TEAL, font:FONT, bold:true});
+    });
+    body += para({spacing:{before:0,after:0}}, runs);
+  }
+
+  // ── FULL-WIDTH TEAL RULE ──────────────────────────────────────────────────
+  body += para({ spacing:{before:80,after:40}, borderBottom:{sz:8,color:TEAL} });
+
+  // ── SECTIONS ─────────────────────────────────────────────────────────────
+  for (const section of sections) {
+    const hdr     = section.header.toUpperCase().trim();
+    const isExp   = /EXPERIENCE|EMPLOYMENT/.test(hdr);
+    const isSkill = /SKILL|COMPETENC|SYSTEM|TECHNOLOG/.test(hdr);
+    const isEdu   = /EDUCATION|QUALIF|CERTIF|ADDITIONAL|LICENC|AWARD|ACHIEVE|REFERENCE/.test(hdr);
+
+    // Section heading — navy shaded background, teal underline
+    body += emptyPara(200, 0);
+    body += para(
+      { spacing:{before:60,after:0}, shd:NAVYL, ind:{left:80} },
+      run("  " + hdr + "  ", {bold:true, size:22, color:NAVY, font:FONT, caps:true, spacing:80})
+    );
+    body += para({ spacing:{before:0,after:100}, borderBottom:{sz:6,color:TEAL} });
+
+    let i = 0;
+    while (i < section.items.length) {
+      const item  = section.items[i];
+      const next1 = section.items[i+1] || "";
+      const next2 = section.items[i+2] || "";
+
+      const isBullet  = /^[-▪•*]\s/.test(item);
+      const isDateLn  = /\d{4}/.test(item) && item.length < 110;
+      const hasBar    = item.includes("|") && !isBullet;
 
       if (isBullet) {
-        const text = item.replace(/^[▪•\-–—*]\s*/, "");
-        body += wPara(
-          { spacing:{before:30,after:30}, numId:1 },
-          wRun(text, {size:21, color:BLACK, font:FONT})
+        // ── Bullet point (teal bullet via numbering) ──────────────────────
+        const txt = item.replace(/^[-▪•*]\s*/, "");
+        body += para(
+          { spacing:{before:40,after:40}, numId:1 },
+          run(txt, {size:21, color:BLACK, font:FONT})
         );
-      } else if (hasDate) {
-        body += wPara(
-          { spacing:{before:0,after:60} },
-          wRun(item, {size:20, color:LGRAY, font:FONT, italic:true})
+
+      } else if (isSkill) {
+        // ── Skill item — indented with teal bullet ────────────────────────
+        body += para(
+          { spacing:{before:30,after:30}, ind:{left:200, hanging:200} },
+          run("▪  ", {size:21, color:TEAL, font:FONT, bold:true})
+          + run(item, {size:21, color:BLACK, font:FONT})
         );
-      } else if (hasBar) {
-        const [title, ...rest] = item.split("|").map(p=>p.trim());
-        const runs = wRun(title, {bold:true, size:24, color:BLACK, font:FONT})
-          + (rest.length ? wRun("  |  ", {size:22, color:LGRAY, font:FONT})
-              + wRun(rest.join(" | "), {size:22, color:GRAY, font:FONT}) : "");
-        body += wPara({ spacing:{before:140,after:20} }, runs);
+
+      } else if (isExp && !isBullet) {
+        // Heuristic: if next line is a company/org line (no date yet), it's a job title
+        const nextHasDate = /\d{4}/.test(next1);
+        const nextIsOrg   = next1 && !nextHasDate && !(/^[-▪•*]/.test(next1));
+
+        if (!isDateLn) {
+          if (nextIsOrg) {
+            // ── Job Title (bold, large, black) ────────────────────────────
+            body += emptyPara(160, 0);
+            body += para(
+              { spacing:{before:0,after:0}, keepNext:true },
+              run(item, {bold:true, size:26, color:BLACK, font:FONT})
+            );
+            // ── Company name (teal, italic) ───────────────────────────────
+            body += para(
+              { spacing:{before:0,after:20}, keepNext:true },
+              run(next1, {size:22, color:TEAL, font:FONT, italic:true})
+            );
+            i += 2; // skip company line, will hit date/bullets next
+            continue;
+          } else if (nextHasDate || hasBar) {
+            // Either: "Title | Date range" on same line, or just a title with date next
+            if (hasBar) {
+              const [title, ...rest] = item.split("|").map(p=>p.trim());
+              body += emptyPara(160, 0);
+              body += para(
+                { spacing:{before:0,after:20} },
+                run(title, {bold:true, size:26, color:BLACK, font:FONT})
+                + run("   |   ", {size:22, color:LGRAY, font:FONT})
+                + run(rest.join(" | "), {size:22, color:TEAL, font:FONT, italic:true})
+              );
+            } else {
+              body += emptyPara(160, 0);
+              body += para(
+                { spacing:{before:0,after:20}, keepNext:true },
+                run(item, {bold:true, size:26, color:BLACK, font:FONT})
+              );
+            }
+          } else {
+            // Sub-company or continuation text
+            body += para(
+              { spacing:{before:0,after:20} },
+              run(item, {size:22, color:TEAL, font:FONT, italic:true})
+            );
+          }
+        } else {
+          // ── Date / location line (amber italic, indented) ─────────────
+          if (hasBar) {
+            const parts = item.split("|").map(p=>p.trim());
+            let runs = "";
+            parts.forEach((p,idx) => {
+              runs += run(p, {size:20, color:AMBER, font:FONT, italic:true});
+              if (idx < parts.length-1)
+                runs += run("  |  ", {size:20, color:LGRAY, font:FONT});
+            });
+            body += para({ spacing:{before:0,after:80}, ind:{left:0} }, runs);
+          } else {
+            body += para(
+              { spacing:{before:0,after:80} },
+              run(item, {size:20, color:AMBER, font:FONT, italic:true})
+            );
+          }
+        }
+
       } else {
-        body += wPara(
-          { spacing:{before:40,after:40} },
-          wRun(item, {size:22, color:BLACK, font:FONT})
-        );
+        // ── Generic body text (edu, references, etc.) ─────────────────────
+        if (hasBar && isEdu) {
+          // Institution | Year — bold institution, italic year
+          const [inst, ...rest] = item.split("|").map(p=>p.trim());
+          body += para(
+            { spacing:{before:40,after:20} },
+            run(inst, {size:22, color:GRAY, font:FONT, bold:true})
+            + run("  |  ", {size:20, color:LGRAY, font:FONT})
+            + run(rest.join("|"), {size:20, color:MGRAY, font:FONT, italic:true})
+          );
+        } else {
+          body += para(
+            { spacing:{before:40,after:40} },
+            run(item, {size:21, color:BLACK, font:FONT})
+          );
+        }
       }
+      i++;
     }
   }
 
-  // Trailing empty para (Word requires it)
   body += "<w:p/>";
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas"
+<w:document
   xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+  xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas">
 <w:body>
 ${body}
 <w:sectPr>
@@ -193,87 +301,6 @@ ${body}
 </w:sectPr>
 </w:body>
 </w:document>`;
-}
-
-// ── Minimal DOCX ZIP assembler — no external lib needed ─────────────────────
-// Uses JSZip which is already loaded for DOCX upload reading
-async function buildDocxBuffer(resumeText) {
-  // Ensure JSZip is loaded (already used for upload — will be cached)
-  if (!window.JSZip) {
-    await new Promise((res, rej) => {
-      if (document.getElementById("jszip")) { 
-        const poll = setInterval(()=>{ if(window.JSZip){clearInterval(poll);res();} },30);
-        return;
-      }
-      const s = document.createElement("script");
-      s.id="jszip"; s.src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
-      s.onload=res; s.onerror=()=>rej(new Error("JSZip failed"));
-      document.head.appendChild(s);
-    });
-  }
-
-  const docXml = buildDocumentXml(resumeText);
-  const zip = new window.JSZip();
-
-  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-  <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
-  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-  <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
-</Types>`);
-
-  zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-</Relationships>`);
-
-  zip.file("word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
-  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>
-</Relationships>`);
-
-  zip.file("word/document.xml", docXml);
-
-  zip.file("word/styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:docDefaults>
-    <w:rPrDefault><w:rPr>
-      <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>
-      <w:sz w:val="22"/><w:szCs w:val="22"/>
-      <w:lang w:val="en-AU"/>
-    </w:rPr></w:rPrDefault>
-  </w:docDefaults>
-  <w:style w:type="paragraph" w:styleId="Normal" w:default="1">
-    <w:name w:val="Normal"/>
-    <w:pPr><w:spacing w:after="0" w:line="276" w:lineRule="auto"/></w:pPr>
-  </w:style>
-</w:styles>`);
-
-  zip.file("word/numbering.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:abstractNum w:abstractNumId="0">
-    <w:lvl w:ilvl="0">
-      <w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="&#x2022;"/>
-      <w:lvlJc w:val="left"/>
-      <w:pPr><w:ind w:left="400" w:hanging="240"/></w:pPr>
-      <w:rPr><w:rFonts w:ascii="Symbol" w:hAnsi="Symbol" w:cs="Symbol"/></w:rPr>
-    </w:lvl>
-  </w:abstractNum>
-  <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
-</w:numbering>`);
-
-  zip.file("word/settings.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:defaultTabStop w:val="709"/>
-  <w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>
-</w:settings>`);
-
-  return await zip.generateAsync({ type:"uint8array", compression:"DEFLATE", compressionOptions:{level:1} });
 }
 
 // Download from a pre-built buffer (instant) or build+download in one step
@@ -368,55 +395,54 @@ async function readResumeFile(file) {
 // API
 // ─────────────────────────────────────────────────────────────────────────────
 async function callAI(system, user) {
-  // Calls our Next.js API route — keeps the Anthropic key secret on the server
-  const res = await fetch("/api/ai", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ system, user }),
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method:"POST",
+    headers:{
+      "content-type":"application/json",
+      "anthropic-version":"2023-06-01",
+      "anthropic-dangerous-direct-browser-access":"true"
+    },
+    body: JSON.stringify({
+      model:"claude-haiku-4-5-20251001",
+      max_tokens:2048,
+      system,
+      messages:[{ role:"user", content:user }]
+    })
   });
+  if (!res.ok) {
+    let msg=`HTTP ${res.status}`;
+    try { const j=await res.json(); msg+=": "+(j.error?.message||JSON.stringify(j)); } catch(_){}
+    throw new Error(msg);
+  }
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  if (!data.text) throw new Error("Empty response from server");
-  return data.text;
+  if (data.error) throw new Error(data.error.message||"API error");
+  if (data.stop_reason==="max_tokens") throw new Error("Response cut off — try a shorter input.");
+  if (!Array.isArray(data.content)||!data.content.length) throw new Error("No content in API response.");
+  const text = data.content.filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+  if (!text) throw new Error("API returned empty text.");
+  return text;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SYSTEM PROMPTS
 // ─────────────────────────────────────────────────────────────────────────────
-const SCORE_SYSTEM = `You are an expert ATS resume analyst. Analyse the resume (and job description if provided). Respond with ONLY a JSON object — no markdown, no backticks, no text outside JSON.
+const SCORE_SYSTEM = `ATS resume analyst. Reply ONLY with raw JSON, no markdown.
+Use this exact shape (replace values with real analysis):
+{"overallScore":85,"hireChance":78,"breakdown":{"atsCompatibility":{"score":21,"max":25,"feedback":"..."},"keywordDensity":{"score":16,"max":20,"feedback":"..."},"impactMetrics":{"score":15,"max":20,"feedback":"..."},"formatStructure":{"score":13,"max":15,"feedback":"..."},"relevanceMatch":{"score":18,"max":20,"feedback":"..."}},"topStrengths":["...","...","..."],"criticalFixes":["...","...","..."],"missingKeywords":["...","...","..."],"salaryRange":{"min":75000,"max":95000,"currency":"AUD"},"competitorComparison":{"vsAvgCandidate":68,"vsTopCandidate":38},"interviewQuestions":["...","...","..."],"rewrittenSummary":"2-3 sentence summary.","verdict":"One sentence verdict."}
+Rules: all scores are plain integers. Be specific and honest.`;
 
-Output this exact structure with real analysis values:
-{"overallScore":85,"hireChance":78,"breakdown":{"atsCompatibility":{"score":21,"max":25,"feedback":"Strong keyword alignment"},"keywordDensity":{"score":16,"max":20,"feedback":"Good coverage of industry terms"},"impactMetrics":{"score":15,"max":20,"feedback":"Several quantified achievements"},"formatStructure":{"score":13,"max":15,"feedback":"Clean ATS-readable layout"},"relevanceMatch":{"score":18,"max":20,"feedback":"High relevance to target role"}},"topStrengths":["Strength one","Strength two","Strength three"],"criticalFixes":["Fix one","Fix two","Fix three"],"missingKeywords":["keyword1","keyword2","keyword3"],"salaryRange":{"min":75000,"max":95000,"currency":"AUD"},"competitorComparison":{"vsAvgCandidate":68,"vsTopCandidate":38},"interviewQuestions":["Question one?","Question two?","Question three?"],"rewrittenSummary":"Compelling 2-3 sentence professional summary.","verdict":"One sentence overall assessment."}
+const OPTIMIZE_SYSTEM = `ATS resume optimizer. Reply ONLY with raw JSON, no markdown.
+Use this exact shape:
+{"optimizedResume":"complete resume text","newAtsScore":96,"keywordsAdded":["kw1","kw2"],"sectionsChanged":["section: what changed"],"improvements":[{"section":"Summary","before":"old text","after":"new text"}],"verdict":"one sentence."}
+Rules: newAtsScore is integer 92-99. Keep all real jobs/dates. Add keywords naturally. Never invent experience. Return complete ready-to-submit resume.`;
 
-All score fields must be plain integers. salaryRange min/max must be plain integers. Analyse deeply and give specific honest feedback based on actual resume content.`;
+const BUILD_SYSTEM = `Expert resume writer. Reply ONLY with raw JSON, no markdown.
+Shape: {"resume":"full resume text","atsScore":88,"keywordsIncluded":["kw1","kw2"]}
+Write a complete ATS-optimised resume. Use action verbs, quantify results, tailor to role.`;
 
-const OPTIMIZE_SYSTEM = `You are an expert ATS resume optimizer. Your job is to take an existing resume and make it ATS-perfect by naturally weaving in missing keywords, strengthening impact statements with metrics, and improving every section. Respond with ONLY a JSON object — no markdown, no backticks, no text outside JSON.
-
-Output this exact structure:
-{"optimizedResume":"Full optimized resume text here with real line breaks as \\n","newAtsScore":96,"keywordsAdded":["keyword1","keyword2","keyword3"],"sectionsChanged":["Professional Summary — rewritten with stronger positioning","Skills — added 6 ATS keywords","Experience bullets — quantified 4 achievements","Added new Certifications section"],"improvements":[{"section":"Professional Summary","before":"Generic summary text","after":"Specific ATS-optimised summary"},{"section":"Skills","before":"Listed basic skills","after":"Added DIFOT, 3PL, ETA Management, Load Planning"},{"section":"Experience Bullet 1","before":"Coordinated freight dispatch","after":"Coordinated 200+ daily freight dispatches achieving 98% DIFOT across WA mining sites"}],"verdict":"Concise statement of how much improvement was made."}
-
-Rules:
-- newAtsScore must be a plain integer between 92 and 99 (genuinely excellent but honest)
-- keywordsAdded must list every keyword you added
-- sectionsChanged must list every section you modified
-- improvements must show real before/after for the most impactful changes (3-6 examples)
-- The optimized resume must be complete and ready to submit — not a summary
-- Preserve all real experience, dates, companies — only enhance wording and add keywords naturally
-- Never invent fake jobs, qualifications, or achievements`;
-
-const BUILD_SYSTEM = `You are an expert resume writer. Create a professional ATS-optimised resume then respond with ONLY a JSON object — no markdown, no backticks, no text outside JSON.
-
-Output this exact structure:
-{"resume":"Full resume text here","atsScore":88,"keywordsIncluded":["keyword1","keyword2"]}
-
-Make it specific, achievement-focused, and tailored to the target role. Use action verbs. Include quantified results.`;
-
-const INTERVIEW_SYSTEM = `You are an expert interview coach. Generate targeted interview preparation then respond with ONLY a JSON object — no markdown, no backticks, no text outside JSON.
-
-Output this exact structure:
-{"questions":[{"q":"Question?","type":"Behavioural","tip":"Answer tip using STAR method"},{"q":"Question?","type":"Technical","tip":"Key points to cover"},{"q":"Question?","type":"Situational","tip":"How to frame your answer"}],"keyCompetencies":["Competency one","Competency two"],"redFlags":["Watch out for this","Common mistake"]}
-
-Generate 6-8 questions mixing all three types. Base everything specifically on the job description.`;
+const INTERVIEW_SYSTEM = `Interview coach. Reply ONLY with raw JSON, no markdown.
+Shape: {"questions":[{"q":"question?","type":"Behavioural|Technical|Situational","tip":"STAR tip"}],"keyCompetencies":["..."],"redFlags":["..."]}
+Generate 6 questions (mix all types) based on the job description.`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS

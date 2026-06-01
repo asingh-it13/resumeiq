@@ -615,7 +615,7 @@ function OptimizeBtn({ resume, jobDesc, originalScore, onResult, disabled, apiKe
 // ─────────────────────────────────────────────────────────────────────────────
 // OPTIMIZE RESULTS PANEL
 // ─────────────────────────────────────────────────────────────────────────────
-function OptimizePanel({ data, resultRef }) {
+function OptimizePanel({ data }) {
   const [copied,     setCopied]     = useState(false);
   const [dlBusy,     setDlBusy]     = useState(false);
   const [dlDone,     setDlDone]     = useState(false);
@@ -658,7 +658,7 @@ function OptimizePanel({ data, resultRef }) {
   const secTitle  = (color="#7c5cfc") => ({ fontSize:11, fontWeight:700, color, textTransform:"uppercase", letterSpacing:"1.8px", marginBottom:16, fontFamily:"'Space Mono',monospace" });
 
   return (
-    <div ref={resultRef} className="riq-fade" style={{ marginTop:24 }}>
+    <div className="riq-fade" style={{ marginTop:24 }}>
 
       {/* ── HERO — Score comparison + Download ─────────────────────────────── */}
       <div style={{ background:"linear-gradient(135deg,rgba(0,229,160,0.07),rgba(245,200,66,0.05))",
@@ -870,24 +870,25 @@ const S = {
 
 function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading, apiKey }) {
   const [optData,    setOptData]    = useState(null);
-  const [optLoading, setOptLoading] = useState(false);
   const optRef = useRef(null);
 
+  // Scroll to optimize results when they arrive
   useEffect(()=>{
     if (optData && optRef.current) {
-      setTimeout(()=>optRef.current?.scrollIntoView({ behavior:"smooth", block:"start" }), 100);
+      setTimeout(()=>optRef.current?.scrollIntoView({ behavior:"smooth", block:"start" }), 120);
     }
   },[optData]);
 
   if (!data) return null;
+
+  // Once optimised — render ONLY the optimize panel (no early return before hooks)
+  if (optData) {
+    return <div ref={optRef}><OptimizePanel data={optData} /></div>;
+  }
+
   const ov=Number(data.overallScore)||0, hc=Number(data.hireChance)||0;
   const ovc=ov>=75?"#00e5a0":ov>=50?"#f5c842":"#ff5b5b";
   const hcc=hc>=65?"#00e5a0":hc>=40?"#f5c842":"#ff5b5b";
-
-  // Once optimised — hide the score panel, show only optimization results
-  if (optData && !optData.error) {
-    return <OptimizePanel data={optData} resultRef={optRef} />;
-  }
 
   return (
     <div ref={resultRef} className="riq-fade" style={{ marginTop:32 }}>
@@ -936,9 +937,9 @@ function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading,
             resume={resume}
             jobDesc={jobDesc}
             originalScore={ov}
-            disabled={loading||optLoading}
+            disabled={loading}
             apiKey={apiKey}
-            onResult={(res)=>{ setOptLoading(false); setOptData(res); }}
+            onResult={(res)=>{ setOptData(res); }}
           />
           <p style={{ fontSize:12, color:"#475569", marginTop:8 }}>
             Adds missing keywords, strengthens bullet points, boosts ATS score — then download instantly

@@ -728,17 +728,36 @@ export function resumeFilename(resumeText, suffix = "Resume.docx") {
 // ═══════════════════════════════════════════════════════════════════════════════
 // API LAYER
 // ═══════════════════════════════════════════════════════════════════════════════
-export async function callAI(system, user, _apiKey, maxTokens=2048) {
-  // Next.js: routes through /api/ai — API key lives in server env var, never in browser
-  const res = await fetch("/api/ai", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ system, user, maxTokens }),
+export async function callAI(system, user, apiKey, maxTokens=2048) {
+  if (!apiKey || !apiKey.trim())
+    throw new Error("Enter your Anthropic API key to use this app.");
+  const res = await fetch(API_URL, {
+    method:"POST",
+    headers:{
+      "content-type":"application/json",
+      "anthropic-version":"2023-06-01",
+      "x-api-key": apiKey.trim(),
+      "anthropic-dangerous-direct-browser-access":"true"
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      system,
+      messages:[{ role:"user", content:user }]
+    })
   });
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`;
+    try { const j=await res.json(); msg += ": "+(j.error?.message||JSON.stringify(j).slice(0,150)); } catch(_){}
+    throw new Error(msg);
+  }
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  if (!data.text) throw new Error("Empty response from server.");
-  return data.text;
+  if (data.error) throw new Error(data.error.message || "API error");
+  if (data.stop_reason === "max_tokens")
+    throw new Error("Response was cut off. Please try a shorter resume.");
+  const text = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("").trim();
+  if (!text) throw new Error("API returned empty content.");
+  return text;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1381,8 +1400,10 @@ function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading,
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  // Next.js: API key is in server env var — no client-side key needed
-  const apiKey = "";  // unused in Next.js — server handles it via /api/ai
+  // API key — read silently from localStorage, no UI
+  const [apiKey] = useState(() => {
+    try { return localStorage.getItem("riq_api_key") || ""; } catch(_){ return ""; }
+  });
 
   // Shared state
   const [tab,         setTab]        = useState(0);

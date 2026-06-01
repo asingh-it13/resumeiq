@@ -637,6 +637,31 @@ export async function downloadDocx(resumeText, filename="Optimised_Resume.docx",
   URL.revokeObjectURL(url);
 }
 
+/** Extract candidate name from resume text and format as a safe filename.
+ *  e.g. "JASHAN KAUR" → "Jashan_Kaur"
+ *  Falls back to "Resume" if no name found.
+ */
+export function resumeFilename(resumeText, suffix = "Resume.docx") {
+  try {
+    const { name } = parseResumeText(resumeText || "");
+    if (!name || name === "Resume") return suffix;
+    // Title-case and replace spaces/special chars with underscores
+    // Title-case each word: "JASHAN KAUR" → "Jashan Kaur"
+    const titled = name.trim()
+      .split(/\s+/)
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
+    const safe = titled
+      .replace(/\s+/g, "_")
+      .replace(/[^A-Za-z0-9_\-]/g, "")
+      .replace(/_+/g, "_")
+      .replace(/^_|_$/g, "");
+    return safe ? `${safe}_${suffix}` : suffix;
+  } catch (_) {
+    return suffix;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // API LAYER
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -761,9 +786,9 @@ function Alert({ msg, onClose }) {
 const ACTION_STEPS = {
   analyse: [
     { at:99, label:"Reading your resume…" },
-    { at:12, label:"Scoring ATS compatibility…" },
-    { at: 8, label:"Analysing keyword gaps…" },
-    { at: 4, label:"Calculating hire probability…" },
+    { at:20, label:"Scoring ATS compatibility…" },
+    { at:12, label:"Analysing keyword gaps…" },
+    { at: 5, label:"Calculating hire probability…" },
   ],
   optimize: [
     { at:99, label:"Scanning for missing keywords…" },
@@ -778,7 +803,7 @@ const ACTION_STEPS = {
   ],
   interview: [
     { at:99, label:"Analysing job requirements…" },
-    { at: 6, label:"Generating targeted questions…" },
+    { at: 8, label:"Generating targeted questions…" },
   ],
 };
 
@@ -823,20 +848,22 @@ function LoadingWithCountdown({ seconds, action="analyse", running }) {
         ))}
       </div>
 
-      {/* Big countdown number */}
+      {/* Big countdown number — shows "Almost done" when timer expires but API still running */}
       <div style={{ fontSize:52, fontWeight:800, color:timerColor,
         fontFamily:"'Space Mono',monospace", lineHeight:1,
         transition:"color 0.8s ease",
         textShadow:`0 0 30px ${timerColor}44` }}>
-        {remaining}
-        <span style={{ fontSize:18, color:"#64748b", marginLeft:4 }}>s</span>
+        {remaining > 0 ? remaining : "~"}
+        <span style={{ fontSize:18, color:"#64748b", marginLeft:4 }}>
+          {remaining > 0 ? "s" : ""}
+        </span>
       </div>
 
       {/* Step label */}
       <div style={{ fontSize:14, color:"#94a3b8", marginTop:10, marginBottom:16,
         fontFamily:"'Space Mono',monospace", minHeight:20,
         transition:"opacity 0.4s" }}>
-        {currentStep.label}
+        {remaining > 0 ? currentStep.label : "Almost there — finalising…"}
       </div>
 
       {/* Progress bar */}
@@ -864,7 +891,7 @@ function LoadingWithCountdown({ seconds, action="analyse", running }) {
 }
 
 // Keep Spinner as a thin alias for compatibility
-function Spinner({ msg }) { return <LoadingWithCountdown seconds={15} action="analyse" running={true} />; }
+function Spinner({ msg }) { return <LoadingWithCountdown seconds={30} action="analyse" running={true} />; }
 
 
 function UploadBtn({ onText, disabled }) {
@@ -948,7 +975,7 @@ function OptimizePanel({ data }) {
     if (dlBusy) return;
     setDlBusy(true); setDlErr("");
     try {
-      await downloadDocx(data.optimizedResume, "Optimised_Resume.docx", docxBuffer || null);
+      await downloadDocx(data.optimizedResume, resumeFilename(data.optimizedResume, "Optimised_Resume.docx"), docxBuffer || null);
       setDlDone(true); setTimeout(() => setDlDone(false), 4000);
     } catch (e) {
       setDlErr(e.message || "Download failed.");
@@ -1310,11 +1337,10 @@ function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading,
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  // API key — persisted in localStorage
-  const [apiKey,      setApiKeyState] = useState(() => {
+  // API key — read silently from localStorage, no UI
+  const [apiKey] = useState(() => {
     try { return localStorage.getItem("riq_api_key") || ""; } catch(_){ return ""; }
   });
-  const [keyOpen,     setKeyOpen]   = useState(false);
 
   // Shared state
   const [tab,         setTab]        = useState(0);
@@ -1329,14 +1355,6 @@ export default function App() {
   const [copied,      setCopied]     = useState(false);
   const [form, setForm] = useState({ name:"",role:"",exp:"",skills:"",achievements:"",edu:"" });
   const resultRef = useRef(null);
-
-  const saveKey = useCallback((val) => {
-    setApiKeyState(val);
-    try {
-      if (val.trim()) localStorage.setItem("riq_api_key", val.trim());
-      else localStorage.removeItem("riq_api_key");
-    } catch(_) {}
-  }, []);
 
   // Scroll to results
   useEffect(() => {
@@ -1383,8 +1401,6 @@ export default function App() {
   const clrTab = useCallback((i) => {
     setTab(i); setErr(""); setScoreData(null); setBuiltData(null); setIvData(null);
   }, []);
-
-  const isKeyOk = apiKey.trim().startsWith("sk-ant-");
 
   // ── RENDER ────────────────────────────────────────────────────────────────
   return (
@@ -1454,43 +1470,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── API KEY PILL ── */}
-        <div style={{ marginBottom:16, display:"flex", justifyContent:"flex-end" }}>
-          {!keyOpen ? (
-            <button onClick={()=>setKeyOpen(true)}
-              style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"6px 14px",
-                borderRadius:99, border:`1px solid ${isKeyOk?"#00e5a033":"#f5c84244"}`,
-                background:isKeyOk?"#00e5a00c":"#f5c8420c",
-                color:isKeyOk?"#00e5a0":"#f5c842", fontSize:12, fontWeight:600,
-                fontFamily:"'Space Mono',monospace", cursor:"pointer" }}>
-              {isKeyOk ? "🔒 API Key Active" : "🔑 Add API Key"}
-            </button>
-          ) : (
-            <div style={{ ...S.card, padding:"14px 16px", display:"flex",
-              flexWrap:"wrap", alignItems:"center", gap:10, marginBottom:0,
-              borderColor:isKeyOk?"#00e5a033":"#f5c84244" }}>
-              <div style={{ flex:"0 0 auto" }}>
-                <div style={{ fontSize:12, fontWeight:700, color:isKeyOk?"#00e5a0":"#f5c842",
-                  fontFamily:"'Space Mono',monospace" }}>
-                  {isKeyOk ? "✅ Connected — ~$0.001 per analysis" : "🔑 Anthropic API Key"}
-                </div>
-                <div style={{ fontSize:11, color:"#475569", marginTop:2 }}>
-                  Free key at console.anthropic.com
-                </div>
-              </div>
-              <div style={{ display:"flex", flex:"1 1 240px", gap:8, alignItems:"center" }}>
-                <input type="password" placeholder="sk-ant-api03-…"
-                  value={apiKey} onChange={e=>saveKey(e.target.value)}
-                  style={{ ...S.inp, flex:1, padding:"8px 12px",
-                    borderColor:isKeyOk?"#00e5a044":"rgba(255,255,255,0.15)" }} />
-                <button onClick={()=>setKeyOpen(false)}
-                  style={{ background:"none", border:"none", cursor:"pointer",
-                    color:"#64748b", fontSize:20, lineHeight:1, padding:"4px 6px" }}>✕</button>
-              </div>
-            </div>
-          )}
-        </div>
-
         {/* ── TABS ── */}
         <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,0.04)",
           borderRadius:12, padding:4, marginBottom:24, overflowX:"auto" }}>
@@ -1531,7 +1510,7 @@ export default function App() {
             <button style={S.btn(loading)} disabled={loading} onClick={analyse}>
               {loading ? `🔍 ${loadMsg}…` : "⚡ Analyse My Resume — FREE"}
             </button>
-            {loading && <LoadingWithCountdown seconds={15} action="analyse" running={loading} />}
+            {loading && <LoadingWithCountdown seconds={30} action="analyse" running={loading} />}
             {scoreData && !loading && (
               <ScorePanel data={scoreData} copied={copied} onCopy={copy}
                 resultRef={resultRef} resume={resume} jobDesc={jobDesc}
@@ -1591,7 +1570,7 @@ export default function App() {
                         {copied?"✅ Copied!":"📋 Copy"}
                       </button>
                       <button style={{ ...S.ghost, borderColor:"#00e5a044", color:"#00e5a0", background:"#00e5a010" }}
-                        onClick={()=>downloadDocx(builtData.resume,"Built_Resume.docx")}>
+                        onClick={()=>downloadDocx(builtData.resume, resumeFilename(builtData.resume, "Resume.docx"))}>
                         ⬇️ .docx
                       </button>
                     </div>
@@ -1629,7 +1608,7 @@ export default function App() {
                 {loading ? "🔍 Matching…" : "⚡ Calculate My Match — FREE"}
               </button>
             </div>
-            {loading && <LoadingWithCountdown seconds={15} action="analyse" running={loading} />}
+            {loading && <LoadingWithCountdown seconds={30} action="analyse" running={loading} />}
             {scoreData && !loading && (
               <ScorePanel data={scoreData} copied={copied} onCopy={copy}
                 resultRef={resultRef} resume={resume} jobDesc={jobDesc}
@@ -1651,7 +1630,7 @@ export default function App() {
                 {loading ? "💬 Generating…" : "⚡ Generate Questions — FREE"}
               </button>
             </div>
-            {loading && <LoadingWithCountdown seconds={12} action="interview" running={loading} />}
+            {loading && <LoadingWithCountdown seconds={20} action="interview" running={loading} />}
             {ivData && !loading && (
               <div ref={resultRef} className="riq-fade" style={{ marginTop:20 }}>
                 {ivData.keyCompetencies?.length > 0 && (

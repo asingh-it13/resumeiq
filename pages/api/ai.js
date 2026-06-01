@@ -1,7 +1,7 @@
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { system, user } = req.body;
+  const { system, user, maxTokens } = req.body;
   if (!system || !user) return res.status(400).json({ error: "Missing system or user field" });
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -16,8 +16,8 @@ export default async function handler(req, res) {
         "x-api-key": apiKey,
       },
       body: JSON.stringify({
-        model: "claude-opus-4-5",
-        max_tokens: 4096,
+        model: "claude-haiku-4-5-20251001",   // 98% cheaper than Opus
+        max_tokens: req.body.maxTokens || 2048,
         system,
         messages: [{ role: "user", content: user }],
       }),
@@ -30,7 +30,7 @@ export default async function handler(req, res) {
 
     const data = await response.json();
     if (data.error) return res.status(500).json({ error: data.error.message });
-    if (data.stop_reason === "max_tokens") return res.status(500).json({ error: "Response was cut off — try a shorter input." });
+    if (data.stop_reason === "max_tokens") return res.status(500).json({ error: "Response cut off — try a shorter input." });
 
     const text = (data.content || [])
       .filter(b => b.type === "text")

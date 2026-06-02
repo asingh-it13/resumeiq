@@ -47,28 +47,83 @@ const MARKET = [
 // ═══════════════════════════════════════════════════════════════════════════════
 // SYSTEM PROMPTS — Minimal tokens = cheap cost
 // ═══════════════════════════════════════════════════════════════════════════════
-const SCORE_SYSTEM = `ATS resume analyst. Reply ONLY with raw JSON, no markdown, no backticks.
-Exact shape:
-{"overallScore":85,"hireChance":78,"breakdown":{"atsCompatibility":{"score":21,"max":25,"feedback":"..."},"keywordDensity":{"score":16,"max":20,"feedback":"..."},"impactMetrics":{"score":15,"max":20,"feedback":"..."},"formatStructure":{"score":13,"max":15,"feedback":"..."},"relevanceMatch":{"score":18,"max":20,"feedback":"..."}},"topStrengths":["...","...","..."],"criticalFixes":["...","...","..."],"missingKeywords":["...","...","..."],"salaryRange":{"min":75000,"max":95000,"currency":"AUD"},"competitorComparison":{"vsAvgCandidate":68,"vsTopCandidate":38},"interviewQuestions":["...","...","..."],"rewrittenSummary":"2-3 sentence summary.","verdict":"One sentence."}
-All scores plain integers. Be specific, honest, based on actual content.`;
+const SCORE_SYSTEM = `You are an ATS resume analyst. Your response must be ONLY a valid JSON object — no prose, no markdown, no backticks, no explanation before or after.
 
-const OPTIMIZE_SYSTEM = `You are an expert ATS resume optimizer. Reply ONLY with a single raw JSON object — no markdown, no backticks, no text before or after.
+Return this exact JSON structure with real values (not placeholders):
+{
+  "overallScore": 85,
+  "hireChance": 78,
+  "breakdown": {
+    "atsCompatibility":  {"score": 21, "max": 25, "feedback": "specific feedback"},
+    "keywordDensity":    {"score": 16, "max": 20, "feedback": "specific feedback"},
+    "impactMetrics":     {"score": 15, "max": 20, "feedback": "specific feedback"},
+    "formatStructure":   {"score": 13, "max": 15, "feedback": "specific feedback"},
+    "relevanceMatch":    {"score": 18, "max": 20, "feedback": "specific feedback"}
+  },
+  "topStrengths":       ["strength 1", "strength 2", "strength 3"],
+  "criticalFixes":      ["fix 1", "fix 2", "fix 3"],
+  "missingKeywords":    ["keyword1", "keyword2", "keyword3"],
+  "salaryRange":        {"min": 75000, "max": 95000, "currency": "AUD"},
+  "competitorComparison": {"vsAvgCandidate": 68, "vsTopCandidate": 38},
+  "interviewQuestions": ["question 1?", "question 2?", "question 3?"],
+  "rewrittenSummary":   "2-3 sentence professional summary.",
+  "verdict":            "One sentence overall assessment."
+}
 
-Required JSON shape (all fields mandatory):
-{"optimizedResume":"FULL resume text — every section, every job, every bullet, every date — nothing omitted","newAtsScore":96,"keywordsAdded":["keyword1","keyword2","keyword3"],"sectionsChanged":["Section name: what changed"],"improvements":[{"section":"Section name","before":"original text","after":"improved text"}],"verdict":"One sentence summary of improvements made."}
+Rules: all score values must be plain integers. Base analysis on actual resume content. Be honest and specific.`;
 
-CRITICAL RULES:
-1. optimizedResume MUST contain 100% of content — ALL jobs, ALL bullets, ALL dates, ALL sections (Summary, Skills, ALL Experience entries, Education, Systems, Certifications, References)
-2. Never truncate or cut short — return the entire resume in optimizedResume
-3. newAtsScore must be an integer 88-98
-4. Add missing ATS keywords naturally — never fabricate experience
-5. Keep all real job titles, company names, dates exactly as given
-6. improvements: 3-6 specific before/after examples of real changes
-7. keywordsAdded: every new keyword added`;
+const OPTIMIZE_SYSTEM = `You are a professional resume writer and ATS expert. Return ONLY a valid JSON object — no markdown, no backticks, nothing else.
 
-const BUILD_SYSTEM = `Expert resume writer. Reply ONLY with raw JSON, no markdown, no backticks.
-Shape: {"resume":"full resume text","atsScore":88,"keywordsIncluded":["kw1","kw2"]}
-Complete ATS-optimised resume. Action verbs, quantified results, tailored to role.`;
+JSON shape:
+{"optimizedResume":"full resume text","newAtsScore":95,"keywordsAdded":["kw1","kw2"],"sectionsChanged":["section: change"],"improvements":[{"section":"x","before":"old","after":"new"}],"verdict":"one sentence."}
+
+━━━ STRICT WORD COUNT RULES ━━━
+
+PROFESSIONAL SUMMARY — must be 100 to 150 words (count them):
+• Sentence 1 (20–25w): Job title + years + core expertise
+• Sentence 2 (30–40w): Technical skills, systems, key responsibilities  
+• Sentence 3 (20–30w): Soft skills, work rights, availability
+• Sentence 4 optional (10–20w): One standout point
+After writing, count: if over 150 cut words. If under 100 add detail.
+
+EACH EXPERIENCE ENTRY — must be 70 to 100 words total:
+• Most recent job: exactly 6 bullets × 12–17 words each
+• Previous jobs: exactly 5 bullets × 12–17 words each  
+• Short/old jobs (under 1 year): 3 bullets × 12–17 words each
+• After writing each job, count ALL bullet words. Adjust until 70–100.
+
+EACH BULLET — exactly 12–17 words. ONE idea only. Action verb first (past tense for finished roles):
+GOOD: "Resolved 80+ daily inbound calls and emails, maintaining 95% customer satisfaction"  (13w ✓)
+GOOD: "Processed 40+ weekly claims with 99% accuracy within 24-hour timeframes"  (11w ✓)
+GOOD: "Supervised team of 6 representatives across query resolution and escalation channels"  (11w ✓)
+BAD:  "Serve as the first point of contact for a high volume of customer calls and emails maintaining a positive experience"  (20w ✗ — too long, two ideas)
+BAD:  "Responsible for managing customer queries"  (6w ✗ — too short, weak verb)
+
+SELF-CHECK before outputting:
+1. Count summary words → must be 100–150
+2. Count bullets in each job → 6 / 5 / 3 as above
+3. Count words in each bullet → must be 12–17
+4. Count total words per job → must be 70–100
+If any check fails, rewrite until it passes. Only then output the JSON.
+
+SKILLS: Keep all original skills. Add ATS keywords as new items. Max 6 words per skill item.
+
+CONTENT RULES:
+1. Return 100% of resume — ALL sections, ALL jobs, ALL dates — nothing omitted
+2. Keep all job titles, company names, dates exactly as written
+3. Never invent experience or qualifications
+4. newAtsScore: integer 88–98
+5. improvements: show 3–5 real before/after rewrites`;
+
+const BUILD_SYSTEM = `You are a professional resume writer. Return ONLY valid JSON — no markdown, no backticks.
+Shape: {"resume":"full text","atsScore":88,"keywordsIncluded":["kw1","kw2"]}
+
+Word count rules:
+- Professional Summary: 100–150 words. 3–4 sentences. Title + years + skills + availability.
+- Each job: 70–100 words total. 5–6 bullets. Each bullet 12–18 words. Action verb first.
+- Short/old jobs: 2–3 bullets only.
+- Skills: noun phrases, max 6 words each.
+- Quantify every achievement with numbers, %, or volume where possible.`;
 
 const INTERVIEW_SYSTEM = `Interview coach. Reply ONLY with raw JSON, no markdown, no backticks.
 Shape: {"questions":[{"q":"?","type":"Behavioural|Technical|Situational","tip":"STAR tip"}],"keyCompetencies":["..."],"redFlags":["..."]}
@@ -81,18 +136,22 @@ Shape: {"questions":[{"q":"?","type":"Behavioural|Technical|Situational","tip":"
 /** Extract JSON from AI response — handles fences, preamble, trailing text */
 export function extractJSON(raw) {
   if (!raw || typeof raw !== "string" || !raw.trim())
-    throw new Error("API returned empty text.");
+    throw new Error("No response received. Please check your connection and try again.");
+  // Strip markdown fences
   let s = raw.replace(/```[a-zA-Z]*\n?/gi, "").replace(/```/g, "").trim();
+  // Direct parse
   try { return JSON.parse(s); } catch (_) {}
+  // Extract first {...} block
   const a = s.indexOf("{"), b = s.lastIndexOf("}");
   if (a !== -1 && b > a) {
     try { return JSON.parse(s.slice(a, b + 1)); } catch (_) {}
   }
-  // Detect truncation — give a useful error
-  if (s.includes('"optimizedResume"') && !s.includes('"verdict"')) {
-    throw new Error("Response was cut off before completing. Please try again — your resume may be very long.");
-  }
-  throw new Error("Could not parse JSON response. Please try again.");
+  // Detect common failure modes
+  if (s.includes('"optimizedResume"') && !s.includes('"verdict"'))
+    throw new Error("Response was cut off. Please try again — your resume may be very long.");
+  if (s.toLowerCase().includes("error") || s.toLowerCase().includes("invalid"))
+    throw new Error("Service error: " + s.slice(0, 120));
+  throw new Error("Unexpected response format. Please try again.");
 }
 
 /** XML escape for DOCX generation */
@@ -201,25 +260,96 @@ export async function readResumeFile(file) {
   if (name.endsWith(".docx") || name.endsWith(".doc")) {
     await _loadScript("jszip", "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js");
     const JSZip = window.JSZip;
-    if (!JSZip) throw new Error("JSZip failed to initialise.");
+    if (!JSZip) throw new Error("JSZip failed to load. Check your connection and try again.");
     const buf = await file.arrayBuffer();
     let zip;
     try { zip = await JSZip.loadAsync(buf); }
-    catch (_) { throw new Error("Could not open Word doc. Please save as .docx and retry."); }
-    const docXml = zip.file("word/document.xml");
-    if (!docXml) throw new Error("word/document.xml not found — invalid .docx.");
-    const xml  = await docXml.async("string");
-    const dom  = new DOMParser().parseFromString(xml, "application/xml");
-    const lines = [];
-    dom.querySelectorAll("p").forEach(p => {
-      const line = Array.from(p.querySelectorAll("t")).map(t => t.textContent).join("");
-      if (line.trim()) lines.push(line.trim());
-    });
+    catch (_) { throw new Error("Could not open this file. Make sure it is a .docx (Word 2007+) and try again."); }
+    const docEntry = zip.file("word/document.xml");
+    if (!docEntry) throw new Error("This does not appear to be a valid .docx file.");
+    const xml = await docEntry.async("string");
+
+    // ── Strategy 1: Regex extraction — works on ALL browsers including iOS Safari
+    // Avoids DOMParser namespace issues entirely.
+    // Extract text between <w:t> and <w:t ...> tags (with or without attributes)
+    const textFromRegex = () => {
+      const lines = [];
+      // Split on <w:p[ >] to get paragraphs, then extract <w:t> content from each
+      const paraChunks = xml.split(/<w:p[\s>\/]/);
+      for (const chunk of paraChunks) {
+        // Extract all <w:t ...>text</w:t> and <w:t>text</w:t> from this paragraph
+        const parts = [];
+        const tRegex = /<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g;
+        let m;
+        while ((m = tRegex.exec(chunk)) !== null) {
+          if (m[1]) parts.push(m[1]);
+        }
+        const line = parts.join("")
+        .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">")
+        .replace(/&apos;/g,"'").replace(/&quot;/g,'"').replace(/&#x[\dA-Fa-f]+;/g,"")
+        .trim();
+      if (line) lines.push(line);
+      }
+      return lines;
+    };
+
+    // ── Strategy 2: DOMParser with html mode — works on Safari iOS
+    // Parses as HTML not XML, so namespace prefixes are ignored gracefully
+    const textFromDOMHTML = () => {
+      try {
+        const dom   = new DOMParser().parseFromString(xml, "text/html");
+        const lines = [];
+        // In HTML mode, <w:p> becomes just elements we can iterate
+        // Use textContent on the body and split by logical breaks
+        // Better: find all elements whose tag includes ":t" (w:t parsed as "w:t" nodeName in some engines)
+        const allEls = dom.getElementsByTagName("w:t");
+        if (allEls.length > 0) {
+          // Group by paragraph: walk nodes and emit line on each w:p
+          const paras = dom.getElementsByTagName("w:p");
+          for (const p of paras) {
+            const tNodes = p.getElementsByTagName("w:t");
+            const line = Array.from(tNodes).map(t => t.textContent).join("").trim();
+            if (line) lines.push(line);
+          }
+        }
+        return lines;
+      } catch(_) { return []; }
+    };
+
+    // ── Strategy 3: Strip all XML tags — last resort, gets all text
+    const textFromStrip = () => {
+      // Remove XML/HTML tags and decode entities
+      const plain = xml
+        .replace(/<w:br[^>]*\/>/g, "\n")   // line breaks
+        .replace(/<\/w:p>/g, "\n")          // paragraph ends → newline
+        .replace(/<[^>]+>/g, "")            // strip all tags
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&apos;/g, "'")
+        .replace(/&quot;/g, '"')
+        .replace(/&#x\w+;/g, "")           // remove hex entities
+        .replace(/\r\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      return plain.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+    };
+
+    // Try strategies in order, use first that gives results
+    let lines = textFromRegex();
+
     if (lines.length === 0) {
-      const allT = Array.from(dom.querySelectorAll("t")).map(t => t.textContent).join(" ").trim();
-      if (allT.length > 30) return allT;
-      throw new Error("Could not read this Word file. Please paste manually.");
+      lines = textFromDOMHTML();
     }
+
+    if (lines.length === 0) {
+      lines = textFromStrip();
+    }
+
+    if (lines.length === 0 || lines.join("").length < 20) {
+      throw new Error("Could not extract text from this Word file. Please copy and paste your resume text instead.");
+    }
+
     return lines.join("\n");
   }
   throw new Error("Unsupported file type. Upload .txt, .pdf, or .docx.");
@@ -271,300 +401,316 @@ function _para(pOpts = {}, runs = "") { return `<w:p>${_ppr(pOpts)}${runs}</w:p>
 function _sp(before = 0, after = 80)  { return _para({ spacing: { before, after } }); }
 
 function _buildDocumentXml(resumeText) {
-  const { name, tagline, contactLines, sections } = parseResumeText(resumeText);
+  const parsed = parseResumeText(resumeText);
+  const { name, tagline, contactLines, sections } = parsed;
 
-  // ── Palette ────────────────────────────────────────────────────────────────
+  // ── Palette ─────────────────────────────────────────────────────────────
   const N  = "1B3A6B", NL = "E8EDF5", T  = "0D7C77";
   const GR = "374151", MG = "6B7280", LG = "9CA3AF";
   const BL = "111827", AM = "854D0E";
+  const F  = "Times New Roman";
 
-  // ── Typography ─────────────────────────────────────────────────────────────
-  const F       = "Times New Roman";
-  const NAME_SZ = 40;  // 20pt — commanding name
-  const POS_SZ  = 26;  // 13pt — position title
-  const H2      = 24;  // 12pt — section headers & job titles
-  const BODY    = 22;  // 11pt — all body text
-  const SM      = 20;  // 10pt — contact, dates
+  // ── Sizes (Word half-points) ─────────────────────────────────────────────
+  const H1   = 40;  // 20pt — name
+  const POS  = 26;  // 13pt — position/tagline
+  const H2   = 24;  // 12pt — section headings, job titles
+  const BODY = 22;  // 11pt — body text, bullets
+  const SM   = 20;  // 10pt — contact, dates
 
-  // ── Auto-fit line spacing ──────────────────────────────────────────────────
-  let lineCount = 8;
-  for (const sec of sections) {
-    lineCount += 3;
-    for (const item of sec.items) {
-      lineCount += Math.ceil((item||"").replace(/\*\*/g,"").length / 90) || 1;
-    }
-  }
+  // ── Auto-fit line spacing ────────────────────────────────────────────────
+  const lineCount = sections.reduce((s, sec) => s + 3 + sec.items.length, 8);
   const LINE  = lineCount <= 95  ? 300 : lineCount <= 130 ? 276 : 259;
-  const BUL_S = lineCount <= 95  ? 20  : lineCount <= 130 ? 12  : 6;
+  const BUL_S = lineCount <= 95  ? 20  : lineCount <= 130 ? 14  : 8;
   const SKL_S = lineCount <= 95  ? 16  : lineCount <= 130 ? 10  : 6;
-  const BOD_S = lineCount <= 95  ? 20  : lineCount <= 130 ? 12  : 8;
+  const BOD_S = lineCount <= 95  ? 20  : lineCount <= 130 ? 14  : 8;
   const SGAP  = lineCount <= 95  ? 140 : lineCount <= 130 ? 100 : 70;
 
-  // ── Clean markdown artefacts ────────────────────────────────────────────────
-  const clean = s => String(s||"")
-    .replace(/\*\*([^*]*)\*\*/g, "$1")  // **bold** → plain
-    .replace(/\*([^*]*)\*/g,   "$1")    // *italic* → plain
-    .replace(/^#+\s*/,         "")      // # heading → plain
-    .trim();
+  // ── Clean markdown from any line ─────────────────────────────────────────
+  const cl = s => String(s||"")
+    .replace(/\*\*([^*]*)\*\*/g,"$1").replace(/\*([^*]*)\*/g,"$1")
+    .replace(/^#+\s*/,"").replace(/&amp;/g,"&").replace(/&lt;/g,"<")
+    .replace(/&gt;/g,">").replace(/&apos;/g,"'").replace(/&quot;/g,'"').trim();
 
-  // ── Bullet detection ────────────────────────────────────────────────────────
-  // Handles: ▪ text, • text, - text, and AI output like **▪  **text
-  const isBulletLine = raw => {
-    const c = clean(raw);
-    if (/^[▪•\-–—]\s/.test(c)) return true;
-    // AI sometimes outputs "**▪  **text" — after clean() becomes "▪  text"
-    if (/^▪\s/.test(c)) return true;
-    return false;
-  };
+  // ── Line classifiers ─────────────────────────────────────────────────────
+  const isBul    = raw => { const c=cl(raw); return /^[▪•\-–—]\s/.test(c)||/^▪\s/.test(c); };
+  const isDate   = s   => /\b\d{4}\b/.test(s)||/Present/.test(s)||/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s/.test(s);
+  const isLoc    = s   => !isDate(s)&&s.length<80&&/\bWA\b|\bNSW\b|\bVIC\b|\bQLD\b|\bSA\b|\bNT\b|\bACT\b|\bTAS\b/.test(s);
+  const isDateLoc= s   => isDate(s)||isLoc(s);
+  const actionRE = /^(Serve|Process|Perform|Liaise|Follow|Assist|Comply|Monitor|Maintain|Deliver|Achieve|Coordinate|Supervise|Manage|Handle|Support|Train|Work|Resolve|Adapt|Utilise|Utilize|Establish|Oversee|Lead|Build|Drive|Implement|Review|Report|Ensure|Prepare|Execute|Create|Oversee|Handle|Record)/i;
+  const titleRE  = /(Administrator|Supervisor|Officer|Manager|Coordinator|Operator|Assistant|Specialist)/i;
+  const isAutoBul= s   => actionRE.test(s)&&s.length>35&&!titleRE.test(s.slice(0,50));
+  const isEduDate= s   => /\b\d{4}\b/.test(s)||/Completed|Current|Present/.test(s);
 
-  // Auto-bullet: experience lines that look like achievements, not titles/dates
-  const isAutoBullet = (raw, inExp) => {
-    if (!inExp) return false;
-    const c = clean(raw);
-    if (c.length < 20) return false;
-    if (/\d{4}/.test(c) && c.length < 110) return false;
-    if (c.includes("|")) return false;
-    if (/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s/.test(c)) return false;
-    const actionVerb = /^(Resolve|Resolv|Manage|Demonstrate|Collaborate|Work|Utilise|Utilize|Adapt|Support|Process|Handle|Deliver|Coordinate|Train|Supervise|Achieve|Maintain|Ensure|Provide|Build|Create|Lead|Drive|Develop|Implement|Monitor|Report|Assist|Complete|Oversee|Conduct|Prepare|Review|Analyse|Analyze|Execute|Establish)/i;
-    const titleWord  = /(Administrator|Supervisor|Officer|Manager|Coordinator|Operator|Assistant|Specialist|Analyst|Consultant|Director|Executive|Representative|Cashier|Clerk)/i;
-    if (titleWord.test(c) && c.length < 80) return false;
-    if (!actionVerb.test(c) && c.length < 80) return false;
-    return true;
-  };
-
-  // ── XML primitives ─────────────────────────────────────────────────────────
-  // rPr — run properties
+  // ── XML primitives ───────────────────────────────────────────────────────
   const rp = o => {
-    let x = "";
-    if (o.font)   x += `<w:rFonts w:ascii="${o.font}" w:hAnsi="${o.font}" w:cs="${o.font}" w:eastAsia="${o.font}"/>`;
-    if (o.bold)   x += "<w:b/><w:bCs/>";
-    if (o.italic) x += "<w:i/><w:iCs/>";
-    if (o.size)   x += `<w:sz w:val="${o.size}"/><w:szCs w:val="${o.size}"/>`;
-    if (o.color)  x += `<w:color w:val="${o.color}"/>`;
-    if (o.caps)   x += "<w:caps/>";
-    return x ? `<w:rPr>${x}</w:rPr>` : "";
+    let x="";
+    if(o.font)   x+=`<w:rFonts w:ascii="${o.font}" w:hAnsi="${o.font}" w:cs="${o.font}" w:eastAsia="${o.font}"/>`;
+    if(o.bold)   x+="<w:b/><w:bCs/>";
+    if(o.italic) x+="<w:i/><w:iCs/>";
+    if(o.size)   x+=`<w:sz w:val="${o.size}"/><w:szCs w:val="${o.size}"/>`;
+    if(o.color)  x+=`<w:color w:val="${o.color}"/>`;
+    if(o.caps)   x+="<w:caps/>";
+    return x?`<w:rPr>${x}</w:rPr>`:"";
   };
-
-  // Text run — always applies Times New Roman
-  const ru = (text, o = {}) => {
-    const t = clean(text);
-    if (!t) return "";
-    return `<w:r>${rp({ font:F, ...o })}<w:t xml:space="preserve">${xmlEsc(t)}</w:t></w:r>`;
+  const ru = (text,o={}) => {
+    const t=cl(text); if(!t) return "";
+    return `<w:r>${rp({font:F,...o})}<w:t xml:space="preserve">${xmlEsc(t)}</w:t></w:r>`;
   };
-
-  // pPr — paragraph properties
-  // CRITICAL: bdrB and bdrL must be in ONE <w:pBdr> block — never two separate ones.
-  // We handle this with a single pBdr builder that takes both.
   const pp = o => {
-    let x = "";
-    // Line spacing
-    const lineVal = o.noLine ? null : (o.line !== undefined ? o.line : LINE);
-    if (o.spacing) {
-      const ls = lineVal !== null ? ` w:line="${lineVal}" w:lineRule="auto"` : "";
-      x += `<w:spacing w:before="${o.spacing.b||0}" w:after="${o.spacing.a||0}"${ls}/>`;
-    } else if (lineVal !== null) {
-      x += `<w:spacing w:before="0" w:after="0" w:line="${lineVal}" w:lineRule="auto"/>`;
+    let x="";
+    const lineVal = o.noLine ? null : (o.line!==undefined ? o.line : LINE);
+    if(o.spacing) {
+      const ls = lineVal!==null ? ` w:line="${lineVal}" w:lineRule="auto"` : "";
+      x+=`<w:spacing w:before="${o.spacing.b||0}" w:after="${o.spacing.a||0}"${ls}/>`;
+    } else if(lineVal!==null) {
+      x+=`<w:spacing w:before="0" w:after="0" w:line="${lineVal}" w:lineRule="auto"/>`;
     }
-    // Indent
-    if (o.ind) x += `<w:ind w:left="${o.ind.l||0}"${o.ind.h ? ` w:hanging="${o.ind.h}"` : ""}/>`;
-    // Bullets
-    if (o.numId) x += `<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${o.numId}"/></w:numPr>`;
-    // Shading (section backgrounds)
-    if (o.shd) x += `<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>`;
-    // Keep with next
-    if (o.keepNext) x += "<w:keepNext/>";
-    // Contextual spacing (collapses gap between same-style consecutive paras)
-    if (o.ctxSpacing) x += "<w:contextualSpacing/>";
-    // Justification
-    const jcVal = o.jc || (o.noJustify ? null : "both");
-    if (jcVal) x += `<w:jc w:val="${jcVal}"/>`;
-    // Borders — MUST be one <w:pBdr> block containing all border children
-    if (o.bdrB || o.bdrL) {
-      let bdr = "";
-      if (o.bdrL) bdr += `<w:left   w:val="single" w:sz="${o.bdrL.sz||12}" w:space="${o.bdrL.sp||4}" w:color="${o.bdrL.c}"/>`;
-      if (o.bdrB) bdr += `<w:bottom w:val="single" w:sz="${o.bdrB.sz||4}"  w:space="1"               w:color="${o.bdrB.c}"/>`;
-      x += `<w:pBdr>${bdr}</w:pBdr>`;
+    if(o.ind)        x+=`<w:ind w:left="${o.ind.l||0}"${o.ind.h?` w:hanging="${o.ind.h}"`:""}/>`; 
+    if(o.numId)      x+=`<w:numPr><w:ilvl w:val="0"/><w:numId w:val="${o.numId}"/></w:numPr>`;
+    if(o.shd)        x+=`<w:shd w:val="clear" w:color="auto" w:fill="${o.shd}"/>`;
+    if(o.keepNext)   x+="<w:keepNext/>";
+    if(o.ctxSpacing) x+="<w:contextualSpacing/>";
+    const jcVal = o.jc||(o.noJustify?null:"both");
+    if(jcVal)        x+=`<w:jc w:val="${jcVal}"/>`;
+    if(o.bdrB||o.bdrL) {
+      let b="";
+      if(o.bdrL) b+=`<w:left   w:val="single" w:sz="${o.bdrL.sz||12}" w:space="${o.bdrL.sp||4}" w:color="${o.bdrL.c}"/>`;
+      if(o.bdrB) b+=`<w:bottom w:val="single" w:sz="${o.bdrB.sz||4}"  w:space="1"               w:color="${o.bdrB.c}"/>`;
+      x+=`<w:pBdr>${b}</w:pBdr>`;
     }
-    return x ? `<w:pPr>${x}</w:pPr>` : "";
+    return x?`<w:pPr>${x}</w:pPr>`:"";
   };
-
-  const pa  = (o={}, runs="") => `<w:p>${pp(o)}${runs}</w:p>`;
-  const gap = (b=0, a=60)    => pa({ spacing:{b,a}, noJustify:true, noLine:true });
+  const pa  = (o={},runs="") => `<w:p>${pp(o)}${runs}</w:p>`;
+  const gap = (b=0,a=60)     => pa({spacing:{b,a},noJustify:true,noLine:true});
 
   let body = "";
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // HEADER BLOCK
-  // ══════════════════════════════════════════════════════════════════════════
-
-  // NAME — 20pt bold navy, thick teal left accent bar, standard letter spacing
+  // ── NAME ─────────────────────────────────────────────────────────────────
   body += pa(
-    { spacing:{b:0,a:30}, bdrL:{sz:32,sp:10,c:T}, noJustify:true, jc:"left", noLine:true },
-    ru(name, { bold:true, size:NAME_SZ, color:N })
+    {spacing:{b:0,a:30},bdrL:{sz:32,sp:10,c:T},noJustify:true,jc:"left",noLine:true},
+    ru(name,{bold:true,size:H1,color:N})
   );
 
-  // POSITION — 13pt teal, always shown (fallback "Professional")
-  const posText = (tagline && tagline.trim()) ? clean(tagline) : "Professional";
+  // ── POSITION ─────────────────────────────────────────────────────────────
+  const pos = tagline && tagline.trim() ? cl(tagline) : "Professional";
   body += pa(
-    { spacing:{b:0,a:30}, noJustify:true, jc:"left", noLine:true },
-    ru(posText, { size:POS_SZ, color:T })
+    {spacing:{b:0,a:28},noJustify:true,jc:"left",noLine:true},
+    ru(pos,{size:POS,color:T})
   );
 
-  // CONTACT — 10pt centred, teal · separators
-  for (const cl of contactLines) {
-    const sep   = cl.includes("·") ? "·" : "|";
-    const parts = cl.split(sep).map(p => clean(p)).filter(Boolean);
+  // ── CONTACT ──────────────────────────────────────────────────────────────
+  for (const line of contactLines) {
+    const sep   = line.includes("·") ? "·" : "|";
+    const parts = line.split(sep).map(p=>cl(p)).filter(Boolean);
     let runs = "";
-    parts.forEach((p, i) => {
-      runs += ru(p, { size:SM, color:GR });
-      if (i < parts.length-1) runs += ru("  ·  ", { size:SM, color:T, bold:true });
+    parts.forEach((p,i) => {
+      runs += ru(p,{size:SM,color:GR});
+      if(i<parts.length-1) runs += ru("  ·  ",{size:SM,color:T,bold:true});
     });
-    body += pa({ spacing:{b:0,a:0}, noJustify:true, jc:"center", noLine:true }, runs);
+    body += pa({spacing:{b:0,a:0},noJustify:true,jc:"center",noLine:true},runs);
   }
 
-  // Full-width teal divider
-  body += pa({ spacing:{b:60,a:40}, bdrB:{sz:10,c:T}, noJustify:true, noLine:true });
+  // ── DIVIDER ───────────────────────────────────────────────────────────────
+  body += pa({spacing:{b:70,a:40},bdrB:{sz:10,c:T},noJustify:true,noLine:true});
 
   // ══════════════════════════════════════════════════════════════════════════
   // SECTIONS
   // ══════════════════════════════════════════════════════════════════════════
   for (const section of sections) {
-    const hh = section.header.toUpperCase().trim();
+    const hh    = section.header.toUpperCase().trim();
     const isExp   = /EXPERIENCE|EMPLOYMENT/.test(hh);
     const isSkill = /SKILL|COMPETENC/.test(hh);
     const isSys   = /SYSTEM|TECHNOLOG|CERTIF|ADDITIONAL|LICENC/.test(hh);
     const isEdu   = /EDUCATION|QUALIF/.test(hh);
 
-    // SECTION HEADING — 12pt bold, navy shading, teal underline
-    // Note: NO bdrL here — only shd (background) and bdrB (underline via separate para)
-    body += gap(SGAP, 0);
+    // ── SECTION HEADING ────────────────────────────────────────────────────
+    body += gap(SGAP,0);
     body += pa(
-      { spacing:{b:50,a:0}, shd:NL, ind:{l:100},
-        keepNext:true, noJustify:true, jc:"left", noLine:true },
-      ru("  " + hh + "  ", { bold:true, size:H2, color:N, caps:true })
+      {spacing:{b:50,a:0},shd:NL,ind:{l:100},keepNext:true,noJustify:true,jc:"left",noLine:true},
+      ru("  "+hh+"  ",{bold:true,size:H2,color:N,caps:true})
     );
-    body += pa({ spacing:{b:0,a:50}, bdrB:{sz:4,c:T}, noJustify:true, noLine:true });
+    body += pa({spacing:{b:0,a:50},bdrB:{sz:4,c:T},noJustify:true,noLine:true});
 
-    let i = 0;
-    while (i < section.items.length) {
-      const raw   = section.items[i] || "";
-      const item  = clean(raw);
-      const next1 = clean(section.items[i+1] || "");
+    // ── SKILLS / SYSTEMS / CERTS — 2 or 3 column table ────────────────────
+    if (isSkill || isSys) {
+      const items = section.items.map(s=>cl(s)).filter(Boolean);
+      const cols  = items.length <= 6 ? 2 : 3;
+      while (items.length % cols !== 0) items.push("");
+      const colW = cols===2 ? 4873 : 3248;
+      const cell = text => {
+        // Paragraph-level rPr sets default bold=0 so ▪ bold never bleeds onto text
+        const pPrXml = pp({spacing:{b:SKL_S,a:SKL_S},ind:{l:200,h:200},noJustify:true,jc:"left"});
+        const pPrSafe = pPrXml
+          ? pPrXml.replace("</w:pPr>", `<w:rPr><w:b w:val="0"/><w:bCs w:val="0"/><w:color w:val="${BL}"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/></w:rPr></w:pPr>`)
+          : `<w:pPr><w:rPr><w:b w:val="0"/><w:bCs w:val="0"/><w:color w:val="${BL}"/></w:rPr></w:pPr>`;
+        const p = `<w:p>${pPrSafe}${text ? ru("▪  ",{size:BODY,color:T,bold:true}) + ru(text,{size:BODY,color:BL,bold:false}) : ""}</w:p>`;
+        return `<w:tc><w:tcPr><w:tcW w:w="${colW}" w:type="dxa"/><w:tcBorders><w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/><w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/><w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/><w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/></w:tcBorders><w:vAlign w:val="top"/><w:tcMar><w:top w:w="0" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tcMar></w:tcPr>${p}</w:tc>`;
+      };
+      let tbl = `<w:tbl><w:tblPr><w:tblW w:w="${colW*cols}" w:type="dxa"/><w:tblBorders><w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/><w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/><w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/><w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/><w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/><w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/></w:tblBorders><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="80" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${Array(cols).fill(`<w:gridCol w:w="${colW}"/>`).join("")}</w:tblGrid>`;
+      for (let r=0; r<items.length/cols; r++) {
+        tbl += "<w:tr>";
+        for (let c=0; c<cols; c++) tbl += cell(items[r*cols+c]);
+        tbl += "</w:tr>";
+      }
+      tbl += "</w:tbl>";
+      body += tbl;
+      body += gap(0,SKL_S);
+      continue;
+    }
 
-      if (!item) { i++; continue; }
+    // ── EDUCATION ─────────────────────────────────────────────────────────
+    if (isEdu) {
+      let i=0;
+      while(i<section.items.length) {
+        const raw  = section.items[i]||"";
+        const item = cl(raw);
+        if(!item){i++;continue;}
+        const hasPipe  = item.includes("|");
+        const hasEDate = isEduDate(item);
 
-      const hasBulletPfx = isBulletLine(raw);
-      const autoBul      = !hasBulletPfx && isAutoBullet(raw, isExp);
-      const isBullet     = hasBulletPfx || autoBul;
-      const hasBar       = item.includes("|") && !hasBulletPfx;
-      const hasDate      = /\d{4}/.test(item) || /Present/.test(item);
-      const isDateLn     = hasDate && hasBar && item.length < 110;
-      const isLocOnly    = hasBar && !hasDate && item.length < 80;
-
-      // Strip bullet prefix for clean display text
-      const bulletTxt = item.replace(/^[▪•\-–—]\s*/, "").trim();
-
-      // ── BULLET POINT ────────────────────────────────────────────────────
-      if (isBullet) {
-        body += pa(
-          { spacing:{b:BUL_S,a:BUL_S}, numId:1, ctxSpacing:true },
-          ru(bulletTxt, { size:BODY, color:BL })
-        );
-
-      // ── SKILL / CERT ITEM — teal ▪, 11pt, NO left border ─────────────
-      } else if (isSkill || isSys) {
-        body += pa(
-          { spacing:{b:SKL_S,a:SKL_S}, ind:{l:220,h:220}, noJustify:true, jc:"left" },
-          ru("▪  ", { size:BODY, color:T, bold:true })
-          + ru(item, { size:BODY, color:BL, bold:false })
-        );
-
-      // ── EDUCATION ────────────────────────────────────────────────────
-      } else if (isEdu) {
-        if (hasBar) {
-          const [inst, ...rest] = item.split("|").map(p => p.trim());
-          body += pa(
-            { spacing:{b:BOD_S,a:BOD_S} },
-            ru(inst, { size:H2, color:GR, bold:true })
-            + ru("  |  ", { size:SM, color:LG })
-            + ru(rest.join("|"), { size:SM, color:MG, italic:true })
-          );
-        } else {
-          body += pa(
-            { spacing:{b:BOD_S,a:4}, keepNext:true, noJustify:true, jc:"left", noLine:true },
-            ru(item, { size:H2, color:BL, bold:true })
-          );
-        }
-
-      // ── EXPERIENCE SECTION ────────────────────────────────────────────
-      } else if (isExp) {
-
-        if (isDateLn || isLocOnly) {
-          // DATE / LOCATION — 10pt amber italic, pipe-split
-          const parts = item.split("|").map(p => p.trim()).filter(Boolean);
-          let runs = "";
-          parts.forEach((p, idx) => {
-            runs += ru(p, { size:SM, color:AM, italic:true });
-            if (idx < parts.length-1) runs += ru("  |  ", { size:SM, color:LG });
+        if(hasEDate && hasPipe) {
+          // "Institution | Completed 2026" — split: institution teal + year amber
+          const parts = item.split("|").map(p=>p.trim()).filter(Boolean);
+          let runs="";
+          parts.forEach((p,idx)=>{
+            const isY = isEduDate(p);
+            runs += ru(p,{size:isY?SM:BODY, color:isY?AM:T, italic:true});
+            if(idx<parts.length-1) runs += ru("   |   ",{size:SM,color:LG});
           });
-          body += pa({ spacing:{b:0,a:60}, noJustify:true, jc:"left", noLine:true }, runs);
-
+          body += pa({spacing:{b:4,a:BOD_S},noJustify:true,jc:"left",noLine:true},runs);
+        } else if(hasEDate) {
+          // Standalone "Completed 2026"
+          body += pa({spacing:{b:4,a:BOD_S},noJustify:true,jc:"left",noLine:true},
+            ru(item,{size:SM,color:AM,italic:true}));
+        } else if(hasPipe) {
+          // "Institution | Date" on one line
+          const [inst,...rest]=item.split("|").map(p=>p.trim());
+          body += pa({spacing:{b:4,a:0},keepNext:true,noJustify:true,jc:"left",noLine:true},
+            ru(inst,{size:BODY,color:T,italic:true}));
+          if(rest.length) body += pa({spacing:{b:0,a:BOD_S},noJustify:true,jc:"left",noLine:true},
+            ru(rest.join("|"),{size:SM,color:AM,italic:true}));
         } else {
-          const nextHasDate = /\d{4}|Present/.test(next1);
-          const nextIsOrg   = next1 && !nextHasDate
-            && !isBulletLine(section.items[i+1]||"")
-            && !next1.includes("|")
-            && next1.length > 3;
-          const nextIsDate  = next1 && ((/\d{4}|Present/.test(next1) && next1.includes("|")) || nextHasDate);
-          const nextIsLoc   = next1.includes("|") && !nextHasDate && next1.length < 100;
-          const looksTitle  = item.length < 90;
+          // Qualification name — bold 12pt black
+          body += pa({spacing:{b:BOD_S,a:4},keepNext:true,noJustify:true,jc:"left",noLine:true},
+            ru(item,{bold:true,size:H2,color:BL}));
+        }
+        i++;
+      }
+      continue;
+    }
 
-          if (nextIsOrg && looksTitle) {
-            // JOB TITLE — 12pt bold black
-            body += gap(SGAP - 30, 0);
-            body += pa(
-              { spacing:{b:0,a:0}, keepNext:true, noJustify:true, jc:"left", noLine:true },
-              ru(item, { bold:true, size:H2, color:BL })
-            );
-            // COMPANY NAME — 11pt teal italic
-            body += pa(
-              { spacing:{b:0,a:6}, keepNext:true, noJustify:true, jc:"left", noLine:true },
-              ru(next1, { size:BODY, color:T, italic:true })
-            );
-            i += 2; continue;
+    // ── EXPERIENCE — pre-pass block builder ────────────────────────────────
+    // Pass 1: classify every line into typed tokens
+    if (isExp) {
+      const tokens = section.items.map(raw => {
+        const c = cl(raw);
+        if(!c) return null;
+        if(isBul(raw))           return {type:"bullet",  text:c.replace(/^[▪•\-–—]\s*/,"").trim()};
+        if(isDateLoc(c))         return {type:"dateloc", text:c};
+        if(isAutoBul(c))         return {type:"bullet",  text:c};
+        return                          {type:"header",  text:c};
+      }).filter(Boolean);
 
-          } else if ((nextIsDate || nextIsLoc) && looksTitle) {
-            // JOB TITLE only (date follows on next line)
-            body += gap(SGAP - 30, 0);
-            body += pa(
-              { spacing:{b:0,a:6}, keepNext:true, noJustify:true, jc:"left", noLine:true },
-              ru(item, { bold:true, size:H2, color:BL })
-            );
+      // Pass 2: group tokens into job blocks
+      const jobs = [];
+      let jb = null;
+      for (let ti=0; ti<tokens.length; ti++) {
+        const tok  = tokens[ti];
+        const next = tokens[ti+1];
 
-          } else if (hasBar && hasDate) {
-            // Combined title|date line — treat as date
-            const parts = item.split("|").map(p => p.trim()).filter(Boolean);
-            let runs = "";
-            parts.forEach((p, idx) => {
-              runs += ru(p, { size:SM, color:AM, italic:true });
-              if (idx < parts.length-1) runs += ru("  |  ", { size:SM, color:LG });
-            });
-            body += pa({ spacing:{b:0,a:60}, noJustify:true, jc:"left", noLine:true }, runs);
+        if(tok.type==="header") {
+          // Determine: is this a job title or a company name?
+          // A job title comes BEFORE a company name or date
+          // A company name comes right after a job title (no pipe)
+          const hasPipe = tok.text.includes("|");
 
+          if(hasPipe) {
+            // "Title | Company" on one line
+            const pIdx    = tok.text.indexOf("|");
+            const title   = tok.text.slice(0,pIdx).trim();
+            const company = tok.text.slice(pIdx+1).trim();
+            if(jb) jobs.push(jb);
+            jb = {title, company, dateStr:"", bullets:[]};
+          } else if(jb===null || (next && next.type==="dateloc")) {
+            // This line is a job title (next is date/loc)
+            if(jb) jobs.push(jb);
+            jb = {title:tok.text, company:"", dateStr:"", bullets:[]};
+          } else if(jb && !jb.company && jb.bullets.length===0) {
+            // This line follows a title with no company yet → it's the company
+            jb.company = tok.text;
           } else {
-            // COMPANY / ORG — 11pt teal italic
-            body += pa(
-              { spacing:{b:0,a:6}, keepNext:true, noJustify:true, jc:"left", noLine:true },
-              ru(item, { size:BODY, color:T, italic:true })
-            );
+            // Orphan header → new job block
+            if(jb) jobs.push(jb);
+            jb = {title:tok.text, company:"", dateStr:"", bullets:[]};
           }
+        } else if(tok.type==="dateloc") {
+          if(!jb) jb = {title:"", company:"", dateStr:"", bullets:[]};
+          // Combine date and location on one line
+          jb.dateStr = jb.dateStr ? jb.dateStr + "   ·   " + tok.text : tok.text;
+        } else if(tok.type==="bullet") {
+          if(!jb) jb = {title:"", company:"", dateStr:"", bullets:[]};
+          jb.bullets.push(tok.text);
+        }
+      }
+      if(jb) jobs.push(jb);
+
+      // Pass 3: emit XML for each job block
+      for (const [ji, job] of jobs.entries()) {
+        body += gap(ji===0 ? SGAP-40 : SGAP-20, 0);
+
+        // Job title — bold 12pt black, no line spacing
+        if(job.title) body += pa(
+          {spacing:{b:0,a:0},keepNext:true,noJustify:true,jc:"left",noLine:true},
+          ru(job.title,{bold:true,size:H2,color:BL})
+        );
+
+        // Company — teal italic 11pt
+        if(job.company) body += pa(
+          {spacing:{b:0,a:4},keepNext:true,noJustify:true,jc:"left",noLine:true},
+          ru(job.company,{size:BODY,color:T,italic:true})
+        );
+
+        // Date / location — amber italic 10pt
+        if(job.dateStr) {
+          // Handle "Mar 2025 – Present  Bentley, WA" (spaces) and "Location|Date" (pipe)
+          const parts = job.dateStr.includes("|")
+            ? job.dateStr.split("|").map(p=>p.trim()).filter(Boolean)
+            : job.dateStr.split(/\s{2,}|\s*·\s*/).map(p=>p.trim()).filter(Boolean);
+          let runs="";
+          parts.forEach((p,idx)=>{
+            runs += ru(p,{size:SM,color:AM,italic:true});
+            if(idx<parts.length-1) runs += ru("   ·   ",{size:SM,color:LG});
+          });
+          body += pa({spacing:{b:0,a:60},noJustify:true,jc:"left",noLine:true},runs);
         }
 
-      // ── GENERIC BODY — 11pt justified ────────────────────────────────
+        // Bullets — 11pt black justified, teal disc
+        for (const bul of job.bullets) {
+          body += pa(
+            {spacing:{b:BUL_S,a:BUL_S},line:LINE,numId:1,ctxSpacing:true},
+            ru(bul,{size:BODY,color:BL})
+          );
+        }
+      }
+      continue;
+    }
+
+    // ── GENERIC SECTION (Summary, References) ────────────────────────────
+    let i=0;
+    while(i<section.items.length) {
+      const raw  = section.items[i]||"";
+      const item = cl(raw);
+      if(!item){i++;continue;}
+      if(isBul(raw)) {
+        const txt = item.replace(/^[▪•\-–—]\s*/,"").trim();
+        body += pa(
+          {spacing:{b:BUL_S,a:BUL_S},line:LINE,numId:1,ctxSpacing:true},
+          ru(txt,{size:BODY,color:BL})
+        );
       } else {
         body += pa(
-          { spacing:{b:BOD_S,a:BOD_S} },
-          ru(item, { size:BODY, color:BL })
+          {spacing:{b:BOD_S,a:BOD_S},line:LINE},
+          ru(item,{size:BODY,color:BL})
         );
       }
       i++;
@@ -1396,14 +1542,446 @@ function ScorePanel({ data, copied, onCopy, resultRef, resume, jobDesc, loading,
   );
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RESUME PREVIEW — renders uploaded resume in the exact DOCX visual format
+// ═══════════════════════════════════════════════════════════════════════════════
+function ResumePreview({ text }) {
+  const parsed = useMemo(() => parseResumeText(text || ""), [text]);
+  const { name, tagline, contactLines, sections } = parsed;
+
+  const cl = s => String(s||"")
+    .replace(/\*\*([^*]*)\*\*/g,"$1").replace(/\*([^*]*)\*/g,"$1")
+    .replace(/^#+\s*/,"").trim();
+
+  const isBul = raw => { const c=cl(raw); return /^[▪•\-–—]\s/.test(c)||/^▪\s/.test(c); };
+
+  // Shared detection helpers — identical logic to _buildDocumentXml
+  const isDateLine = s =>
+    /\b\d{4}\b/.test(s) || /Present/.test(s) ||
+    /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s/.test(s);
+  const isLocLine  = s =>
+    !isDateLine(s) && s.length < 70 &&
+    /\bWA\b|\bNSW\b|\bVIC\b|\bQLD\b|\bSA\b|\bNT\b|\bACT\b|\bTAS\b/.test(s);
+  const actionVerbRE = /^(Serve|Process|Perform|Liaise|Follow|Assist|Comply|Computer|Monitor|Maintain|Deliver|Achieve|Coordinate|Supervise|Manage|Handle|Support|Train|Work|Resolve|Adapt|Utilise|Utilize|Establish|Oversee|Lead|Build|Drive|Implement|Review|Report|Ensure|Prepare|Execute|Create)/i;
+  const titleWordRE  = /(Administrator|Supervisor|Officer|Manager|Coordinator|Operator|Assistant|Specialist)/i;
+
+  if (!name && sections.length === 0) return null;
+
+  const FF   = '"Times New Roman", Times, serif';
+  const NAVY = "#1B3A6B", NAVYL = "#E8EDF5", TEAL = "#0D7C77";
+  const GR   = "#374151", MG = "#6B7280", LG = "#9CA3AF", AM = "#854D0E";
+
+  // ── Experience section renderer ───────────────────────────────────────────
+  // Groups items into job blocks: [title, company?, date/location, ...bullets]
+  // Handles all formats seen in Jashan's resume
+  const renderExperience = (items) => {
+    const blocks = [];
+    let i = 0;
+
+    while (i < items.length) {
+      const raw  = items[i] || "";
+      const item = cl(raw);
+      if (!item) { i++; continue; }
+
+      // Bullet — not a job header
+      if (isBul(raw)) {
+        // Append to last block's bullets, or create orphan block
+        const txt = item.replace(/^[▪•\-–—]\s*/,"").trim();
+        if (blocks.length > 0) { blocks[blocks.length-1].bullets.push(txt); }
+        else blocks.push({ title:"", company:"", dateLoc:[], bullets:[txt] });
+        i++; continue;
+      }
+
+      // Check if this looks like a job title / header line
+      // Job title heuristics: no bullet prefix, not a pure date, length reasonable
+      const nextRaw  = items[i+1] || "";
+      const next1    = cl(nextRaw);
+      const next2    = cl(items[i+2] || "");
+
+      const hasBar      = item.includes("|") && item.includes("–") === false;
+      const looksDate   = isDateLine(item);
+      const looksLoc    = isLocLine(item);
+      const looksBullet = isBul(raw);
+
+      // Auto-bullet: action verb lines in experience that aren't headers
+      const isAutoBulletLine = actionVerbRE.test(item) && item.length > 40 && !titleWordRE.test(item.slice(0,60));
+
+      if (!looksBullet && !looksDate && !looksLoc && !isAutoBulletLine) {
+        // This is a job title or company line — start a new block
+        const block = { title:"", company:"", dateLoc:[], bullets:[] };
+
+        if (hasBar) {
+          // "Job Title | Company Name" on one line — split on first |
+          const [jobTitle, ...compParts] = item.split("|").map(p=>p.trim());
+          block.title   = jobTitle;
+          block.company = compParts.join(" | ");
+        } else {
+          block.title = item;
+          // Peek: next line company?
+          if (next1 && !isDateLine(next1) && !isLocLine(next1) && !isBul(nextRaw) && next1.length < 120 && !actionVerbRE.test(next1)) {
+            block.company = next1;
+            i++;
+          }
+        }
+
+        // Collect date/location lines that follow
+        while (i + 1 < items.length) {
+          const peek    = cl(items[i+1] || "");
+          const peekRaw = items[i+1] || "";
+          if (!peek) { i++; continue; }
+          if (isDateLine(peek) || isLocLine(peek)) {
+            block.dateLoc.push(peek);
+            i++;
+          } else { break; }
+        }
+
+        blocks.push(block);
+        i++; continue;
+      }
+
+      // Date/location orphan (no block started yet)
+      if (looksDate || looksLoc) {
+        if (blocks.length > 0) { blocks[blocks.length-1].dateLoc.push(item); }
+        else blocks.push({ title:"", company:"", dateLoc:[item], bullets:[] });
+        i++; continue;
+      }
+
+      // Auto-bullet line
+      if (isAutoBulletLine) {
+        const txt = item.trim();
+        if (blocks.length > 0) { blocks[blocks.length-1].bullets.push(txt); }
+        else blocks.push({ title:"", company:"", dateLoc:[], bullets:[txt] });
+        i++; continue;
+      }
+
+      i++;
+    }
+
+    return blocks.map((block, bi) => {
+      // Word count for this job block
+      const jobWords = block.bullets.reduce((s,b) => s + b.split(/\s+/).filter(Boolean).length, 0);
+      const wColor = jobWords >= 70 && jobWords <= 100 ? "#00e5a0"
+        : jobWords > 100 ? "#ff5b5b" : "#f5c842";
+      const wLabel = jobWords === 0 ? "" :
+        jobWords < 70  ? `${jobWords}w ⚠️ too short (need 70–100)` :
+        jobWords > 100 ? `${jobWords}w ❌ too long (need 70–100)` :
+                         `${jobWords}w ✓`;
+      return (
+        <div key={bi} style={{
+          marginTop: bi === 0 ? 4 : 14,
+          borderLeft: `3px solid ${TEAL}`,
+          paddingLeft: 10,
+        }}>
+          {/* Job title + word count badge */}
+          <div style={{ display:"flex", justifyContent:"space-between",
+            alignItems:"flex-start", gap:8, flexWrap:"wrap" }}>
+            <div>
+              {block.title && (
+                <div style={{ fontWeight:700, fontSize:12, color:"#111827",
+                  fontFamily:FF, lineHeight:1.3, marginBottom:1 }}>
+                  {block.title}
+                </div>
+              )}
+              {block.company && (
+                <div style={{ fontSize:11, color:TEAL, fontStyle:"italic",
+                  fontFamily:FF, lineHeight:1.3, marginBottom:2 }}>
+                  {block.company}
+                </div>
+              )}
+            </div>
+            {wLabel && (
+              <span style={{ fontSize:9, color:wColor, fontFamily:"monospace",
+                whiteSpace:"nowrap", paddingTop:2, flexShrink:0,
+                fontWeight:700 }}>
+                {wLabel}
+              </span>
+            )}
+          </div>
+          {/* Date + Location */}
+          {block.dateLoc.length > 0 && (
+            <div style={{ fontSize:10, color:AM, fontStyle:"italic",
+              fontFamily:FF, marginBottom:5, lineHeight:1.3 }}>
+              {block.dateLoc.join("  ·  ")}
+            </div>
+          )}
+          {/* Bullets */}
+          {block.bullets.map((b, bi2) => {
+            const bw = b.split(/\s+/).filter(Boolean).length;
+            const tooLong = bw > 20;
+            return (
+              <div key={bi2} style={{ display:"flex", gap:7, marginBottom:3, lineHeight:1.35 }}>
+                <span style={{ color:TEAL, fontWeight:700, flexShrink:0, fontSize:11, marginTop:1 }}>•</span>
+                <span style={{ fontSize:11, textAlign:"justify", fontFamily:FF,
+                  color: tooLong ? "#cc4444" : "#111827" }}>
+                  {b}
+                  {tooLong && (
+                    <span style={{ fontSize:9, color:"#cc4444", marginLeft:4,
+                      fontFamily:"monospace" }}>({bw}w)</span>
+                  )}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      );
+    });
+  };
+
+  return (
+    <div style={{ background:"#fff", borderRadius:12, padding:"28px 32px",
+      boxShadow:"0 4px 32px rgba(0,0,0,0.18)", maxWidth:780, margin:"0 auto",
+      fontFamily:FF, fontSize:11, color:"#111827", lineHeight:1.25 }}>
+
+      {/* NAME */}
+      <div style={{ borderLeft:`4px solid ${TEAL}`, paddingLeft:12, marginBottom:3 }}>
+        <div style={{ fontSize:20, fontWeight:700, color:NAVY, fontFamily:FF }}>
+          {cl(name)}
+        </div>
+      </div>
+
+      {/* POSITION */}
+      <div style={{ fontSize:13, color:TEAL, marginBottom:5, paddingLeft:16, fontFamily:FF }}>
+        {tagline ? cl(tagline) : "Professional"}
+      </div>
+
+      {/* CONTACT */}
+      {contactLines.map((line, ci) => {
+        const sep   = line.includes("·") ? "·" : "|";
+        const parts = line.split(sep).map(p => cl(p)).filter(Boolean);
+        return (
+          <div key={ci} style={{ textAlign:"center", fontSize:10, color:GR,
+            marginBottom:2, fontFamily:FF }}>
+            {parts.map((p, pi) => (
+              <span key={pi}>
+                {p}
+                {pi < parts.length-1 &&
+                  <span style={{ color:TEAL, fontWeight:700, margin:"0 4px" }}>·</span>}
+              </span>
+            ))}
+          </div>
+        );
+      })}
+
+      {/* TEAL DIVIDER */}
+      <div style={{ borderBottom:`2px solid ${TEAL}`, margin:"8px 0 0" }} />
+
+      {/* SECTIONS */}
+      {sections.map((sec, si) => {
+        const hh    = sec.header.toUpperCase().trim();
+        const isExp   = /EXPERIENCE|EMPLOYMENT/.test(hh);
+        const isSkill = /SKILL|COMPETENC/.test(hh);
+        const isSys   = /SYSTEM|TECHNOLOG|CERTIF|ADDITIONAL|LICENC/.test(hh);
+        const isEdu   = /EDUCATION|QUALIF/.test(hh);
+        const items   = sec.items;
+
+        const rows = [];
+        let i = 0;
+
+        if (isExp) {
+          // Use the structured experience renderer
+          // Count total experience words for the badge
+          const expWordCount = items.reduce((sum, line) => {
+            const c2 = cl(line);
+            if (!c2 || isDateLine(c2) || isLocLine(c2)) return sum;
+            return sum + c2.replace(/^[▪•\-–—]\s*/, "").trim().split(/\s+/).filter(Boolean).length;
+          }, 0);
+          const expBadgeColor = expWordCount >= 70 && expWordCount <= 100 ? "#00e5a0"
+            : expWordCount > 100 ? "#ff5b5b" : "#f5c842";
+          return (
+            <div key={si} style={{ marginTop:14 }}>
+              <div style={{ background:NAVYL, padding:"4px 10px",
+                display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span style={{ fontWeight:700, fontSize:12, color:NAVY,
+                  letterSpacing:"1.2px", fontFamily:FF }}>{hh}</span>
+              </div>
+              <div style={{ borderBottom:`1.5px solid ${TEAL}`, marginBottom:6 }} />
+              <div>{renderExperience(items)}</div>
+            </div>
+          );
+        }
+
+        while (i < items.length) {
+          const raw   = items[i] || "";
+          const item  = cl(raw);
+          const next1 = cl(items[i+1] || "");
+          if (!item) { i++; continue; }
+
+          const hasBullet = isBul(raw);
+          const hasBar    = item.includes("|") && !hasBullet;
+          const hasDate   = /\d{4}/.test(item) || /Present/.test(item);
+          const bulletTxt = item.replace(/^[▪•\-–—]\s*/,"").trim();
+
+          if (hasBullet) {
+            const bw = bulletTxt.split(/\s+/).filter(Boolean).length;
+            rows.push(
+              <div key={i} style={{ display:"flex", gap:7, marginBottom:3, lineHeight:1.35 }}>
+                <span style={{ color:TEAL, fontWeight:700, flexShrink:0, fontSize:11, marginTop:1 }}>•</span>
+                <span style={{ fontSize:11, textAlign:"justify", fontFamily:FF,
+                  color: bw > 20 ? "#cc4444" : "#111827" }}>
+                  {bulletTxt}
+                  {bw > 20 && <span style={{ fontSize:9, color:"#cc4444", marginLeft:4, fontFamily:"monospace" }}>({bw}w ❌)</span>}
+                </span>
+              </div>
+            );
+          } else if (isSkill || isSys) {
+            const skillBatch = [];
+            while (i < items.length) {
+              const sRaw = items[i] || "";
+              const sItem = cl(sRaw);
+              if (!sItem || isBul(sRaw)) break;
+              skillBatch.push(sItem);
+              i++;
+            }
+            const cols = skillBatch.length <= 6 ? 2 : 3;
+            rows.push(
+              <div key={`sk-${si}-${i}`}
+                style={{ display:"grid", gridTemplateColumns:`repeat(${cols}, 1fr)`, gap:"2px 4px", marginBottom:4 }}>
+                {skillBatch.map((sk, ki) => sk ? (
+                  <div key={ki} style={{ display:"flex", gap:5, alignItems:"flex-start", padding:"2px 4px", lineHeight:1.3 }}>
+                    <span style={{ color:TEAL, fontWeight:700, flexShrink:0, fontSize:10, marginTop:1 }}>▪</span>
+                    <span style={{ fontSize:10, color:"#111827", fontFamily:FF, lineHeight:1.3 }}>{sk}</span>
+                  </div>
+                ) : null)}
+              </div>
+            );
+            continue;
+          } else if (isEdu) {
+            const eduDate = /\b\d{4}\b/.test(item) || /Completed|Current|Present/.test(item);
+            const hasBar2 = item.includes("|");
+
+            if (eduDate && hasBar2) {
+              // "Institution  |  Completed 2026"
+              const parts = item.split("|").map(p=>p.trim()).filter(Boolean);
+              rows.push(
+                <div key={i} style={{ display:"flex", gap:6, alignItems:"center",
+                  marginBottom:4, flexWrap:"wrap", fontFamily:FF }}>
+                  {parts.map((p,pi) => (
+                    <span key={pi} style={{ display:"flex", alignItems:"center", gap:6 }}>
+                      <span style={{ fontSize:10, color: /\d{4}|Completed/.test(p) ? AM : MG,
+                        fontStyle:"italic", fontFamily:FF }}>{p}</span>
+                      {pi < parts.length-1 &&
+                        <span style={{ color:LG, fontSize:10 }}>|</span>}
+                    </span>
+                  ))}
+                </div>
+              );
+            } else if (eduDate) {
+              // "Completed 2026" standalone
+              rows.push(
+                <div key={i} style={{ fontSize:10, color:AM, fontStyle:"italic",
+                  marginBottom:4, fontFamily:FF }}>{item}</div>
+              );
+            } else if (hasBar2) {
+              // "Institution | Date" — split into institution (teal italic) + date (amber italic)
+              const [inst,...rest] = item.split("|").map(p=>p.trim());
+              rows.push(
+                <div key={i} style={{ marginBottom:4, fontFamily:FF }}>
+                  <div style={{ fontSize:11, color:TEAL, fontStyle:"italic",
+                    fontFamily:FF, marginBottom:1 }}>{inst}</div>
+                  {rest.length > 0 && (
+                    <div style={{ fontSize:10, color:AM, fontStyle:"italic", fontFamily:FF }}>
+                      {rest.join(" | ")}
+                    </div>
+                  )}
+                </div>
+              );
+            } else {
+              // Qualification name — bold 12pt black
+              rows.push(
+                <div key={i} style={{ fontWeight:700, fontSize:12, color:"#111827",
+                  marginBottom:2, fontFamily:FF }}>{item}</div>
+              );
+            }
+          } else {
+            // Word count badge for summary paragraph
+            const isSummarySection = /SUMMARY|PROFILE|OBJECTIVE/.test(hh);
+            const paraWords = item.split(/\s+/).filter(Boolean).length;
+            const summaryAllWords = isSummarySection
+              ? items.reduce((s,ln)=>s+cl(ln).split(/\s+/).filter(Boolean).length, 0) : 0;
+            const swColor = summaryAllWords >= 100 && summaryAllWords <= 150 ? "#00e5a0"
+              : summaryAllWords > 0 ? "#ff5b5b" : null;
+            const swLabel = summaryAllWords > 0
+              ? (summaryAllWords < 100 ? `${summaryAllWords}w ⚠️ too short (100–150)` :
+                 summaryAllWords > 150 ? `${summaryAllWords}w ❌ too long (100–150)` :
+                 `${summaryAllWords}w ✓`) : null;
+            rows.push(
+              <div key={i}>
+                {isSummarySection && swLabel && i === 0 && (
+                  <div style={{ fontSize:9, fontWeight:700, fontFamily:"monospace",
+                    marginBottom:4, color:swColor }}>
+                    {swLabel}
+                  </div>
+                )}
+                <div style={{ fontSize:11, color:"#111827", marginBottom:3,
+                  textAlign:"justify", lineHeight:1.35, fontFamily:FF }}>
+                  {hasBullet
+                    ? <><span style={{color:TEAL,fontWeight:700,marginRight:5}}>•</span>{bulletTxt}</>
+                    : item}
+                </div>
+              </div>
+            );
+          }
+          i++;
+        }
+
+        // Word count badge for PROFESSIONAL SUMMARY
+        const summaryWC = hh.includes("SUMMARY") && rows.length > 0
+          ? items.reduce((sum, line) => {
+              const c2 = cl(line);
+              return c2 ? sum + c2.split(/\s+/).filter(Boolean).length : sum;
+            }, 0)
+          : 0;
+        const summaryBadge = summaryWC > 0
+          ? { count: summaryWC,
+              color: summaryWC >= 100 && summaryWC <= 150 ? "#00e5a0"
+                : summaryWC < 100 ? "#f5c842" : "#ff5b5b",
+              label: summaryWC < 100  ? `${summaryWC}w ⚠️ under 100`
+                   : summaryWC > 150  ? `${summaryWC}w ❌ over 150`
+                   :                    `${summaryWC}w ✓` }
+          : null;
+
+        return (
+          <div key={si} style={{ marginTop:14 }}>
+            <div style={{ background:NAVYL, padding:"4px 10px",
+              display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span style={{ fontWeight:700, fontSize:12, color:NAVY,
+                letterSpacing:"1.2px", fontFamily:FF }}>{hh}</span>
+              {summaryBadge && (
+                <span style={{ fontSize:9, fontWeight:700, fontFamily:"monospace",
+                  color:summaryBadge.color, whiteSpace:"nowrap" }}>
+                  {summaryBadge.label}
+                </span>
+              )}
+            </div>
+            <div style={{ borderBottom:`1.5px solid ${TEAL}`, marginBottom:6 }} />
+            <div>{rows}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  // API key — read silently from localStorage, no UI
-  const [apiKey] = useState(() => {
+  // API key — persisted in localStorage, shown as collapsed pill on dashboard
+  const [apiKey,    setApiKeyRaw] = useState(() => {
     try { return localStorage.getItem("riq_api_key") || ""; } catch(_){ return ""; }
   });
+  const [keyOpen,   setKeyOpen]   = useState(false);
+
+  const saveKey = useCallback((val) => {
+    setApiKeyRaw(val);
+    try {
+      if (val.trim()) localStorage.setItem("riq_api_key", val.trim());
+      else localStorage.removeItem("riq_api_key");
+    } catch(_) {}
+  }, []);
+
+  const isKeyOk = apiKey.trim().startsWith("sk-ant-");
 
   // Shared state
   const [tab,         setTab]        = useState(0);
@@ -1416,6 +1994,7 @@ export default function App() {
   const [loadMsg,     setLoadMsg]    = useState("");
   const [err,         setErr]        = useState("");
   const [copied,      setCopied]     = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const [form, setForm] = useState({ name:"",role:"",exp:"",skills:"",achievements:"",edu:"" });
   const resultRef = useRef(null);
 
@@ -1533,6 +2112,56 @@ export default function App() {
           </div>
         </div>
 
+        {/* ── API KEY PILL ── */}
+        <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+          {!keyOpen ? (
+            <button onClick={()=>setKeyOpen(true)}
+              style={{ display:"inline-flex", alignItems:"center", gap:6,
+                padding:"6px 14px", borderRadius:99,
+                border:`1px solid ${isKeyOk?"#00e5a033":"#f5c84266"}`,
+                background: isKeyOk?"#00e5a00c":"#f5c8420c",
+                color: isKeyOk?"#00e5a0":"#f5c842",
+                fontSize:12, fontWeight:600,
+                fontFamily:"'Space Mono',monospace", cursor:"pointer" }}>
+              {isKeyOk ? "🔒 API Key Active" : "🔑 Add API Key"}
+            </button>
+          ) : (
+            <div style={{ background:"rgba(255,255,255,0.03)",
+              border:`1px solid ${isKeyOk?"#00e5a033":"#f5c84266"}`,
+              borderRadius:12, padding:"12px 16px", width:"100%",
+              display:"flex", flexWrap:"wrap", alignItems:"center", gap:10 }}>
+              <div style={{ flex:"0 0 auto" }}>
+                <div style={{ fontSize:12, fontWeight:700,
+                  color:isKeyOk?"#00e5a0":"#f5c842",
+                  fontFamily:"'Space Mono',monospace" }}>
+                  {isKeyOk ? "✅ API Key Connected" : "🔑 Anthropic API Key"}
+                </div>
+                <div style={{ fontSize:11, color:"#475569", marginTop:2 }}>
+                  {isKeyOk
+                    ? "~$0.001 per analysis · get keys at console.anthropic.com"
+                    : "Get your free key → console.anthropic.com → API Keys"}
+                </div>
+              </div>
+              <div style={{ display:"flex", flex:"1 1 260px", gap:8, alignItems:"center" }}>
+                <input
+                  type="password"
+                  placeholder="sk-ant-api03-…"
+                  value={apiKey}
+                  onChange={e => saveKey(e.target.value)}
+                  style={{ flex:1, background:"rgba(255,255,255,0.05)",
+                    border:`1px solid ${isKeyOk?"#00e5a044":"rgba(255,255,255,0.15)"}`,
+                    borderRadius:8, padding:"8px 12px", color:"#e2e8f0",
+                    fontSize:13, fontFamily:"'Space Mono',monospace", outline:"none" }}
+                />
+                <button onClick={()=>setKeyOpen(false)}
+                  style={{ background:"none", border:"none", cursor:"pointer",
+                    color:"#64748b", fontSize:20, lineHeight:1, padding:"4px 8px",
+                    flexShrink:0 }}>✕</button>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* ── TABS ── */}
         <div style={{ display:"flex", gap:4, background:"rgba(255,255,255,0.04)",
           borderRadius:12, padding:4, marginBottom:24, overflowX:"auto" }}>
@@ -1558,8 +2187,43 @@ export default function App() {
               <div style={S.sec()}>📄 Your Resume</div>
               <textarea style={S.ta} placeholder="Paste your full resume here…"
                 value={resume} onChange={e=>setResume(e.target.value)} />
-              <UploadBtn onText={setResume} disabled={loading} />
+              <UploadBtn onText={t=>{ setResume(t); setShowPreview(true); }} disabled={loading} />
+              {resume.trim() && (
+                <div style={{ marginTop:12, display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                  <button
+                    onClick={()=>setShowPreview(v=>!v)}
+                    style={{ display:"inline-flex", alignItems:"center", gap:6,
+                      padding:"7px 14px", borderRadius:8,
+                      border:`1px solid ${showPreview?"#7c5cfc44":"rgba(255,255,255,0.12)"}`,
+                      background: showPreview?"#7c5cfc14":"rgba(255,255,255,0.04)",
+                      color: showPreview?"#a78bfa":"#64748b",
+                      fontSize:12, fontWeight:600, fontFamily:"inherit", cursor:"pointer" }}>
+                    {showPreview ? "🔼 Hide Preview" : "👁️ Preview Resume"}
+                  </button>
+                  {showPreview && (
+                    <span style={{ fontSize:11, color:"#475569",
+                      fontFamily:"'Space Mono',monospace" }}>
+                      Renders exactly as your downloaded .docx
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
+            {showPreview && resume.trim() && (
+              <div className="riq-fade" style={{ marginBottom:20 }}>
+                <div style={{ ...S.card, padding:"20px 24px" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between",
+                    alignItems:"center", marginBottom:16, flexWrap:"wrap", gap:10 }}>
+                    <div style={S.sec("#7c5cfc")}>👁️ Resume Preview</div>
+                    <span style={{ fontSize:11, color:"#334155",
+                      fontFamily:"'Space Mono',monospace" }}>
+                      Same layout as your .docx download
+                    </span>
+                  </div>
+                  <ResumePreview text={resume} />
+                </div>
+              </div>
+            )}
             <div style={S.card}>
               <div style={S.sec()}>💼 Job Description
                 <span style={{ color:"#334155", fontWeight:400, textTransform:"none", letterSpacing:"normal" }}>
